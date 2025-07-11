@@ -130,6 +130,27 @@ validator := zensegur.NewValidator()
 repo := userRepo.WithValidation(validator)
 ```
 
+### Middleware de Autenticação
+```go
+// Implementar interface Claims
+type UserClaims struct {
+    UserID   string   `json:"sub"`
+    Username string   `json:"username"`
+    Roles    []string `json:"roles"`
+    Permissions []string `json:"permissions"`
+}
+
+func (u *UserClaims) GetUserID() string { return u.UserID }
+func (u *UserClaims) GetUsername() string { return u.Username }
+func (u *UserClaims) GetRoles() []string { return u.Roles }
+func (u *UserClaims) GetPermissions() []string { return u.Permissions }
+
+// Usar middleware
+r.Use(zensegur.AuthMiddleware(myJWTValidator))
+r.GET("/admin", zensegur.RequireRole("admin"), handler)
+r.GET("/users", zensegur.RequirePermission("users.read"), handler)
+```
+
 ### Metadados Automáticos
 ```go
 // Todos os documentos terão automaticamente:
