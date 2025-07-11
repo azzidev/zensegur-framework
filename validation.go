@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// Validação automática usando tags
 type Validator struct {
 	rules map[string]func(interface{}) error
 }
@@ -26,17 +25,17 @@ func (v *Validator) Validate(data interface{}) error {
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
 	}
-	
+
 	typ := val.Type()
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
 		fieldType := typ.Field(i)
-		
+
 		tag := fieldType.Tag.Get("validate")
 		if tag == "" {
 			continue
 		}
-		
+
 		rules := strings.Split(tag, ",")
 		for _, rule := range rules {
 			if fn, exists := v.rules[rule]; exists {
@@ -49,17 +48,16 @@ func (v *Validator) Validate(data interface{}) error {
 	return nil
 }
 
-// Validações comuns
 func init() {
 	defaultValidator := NewValidator()
-	
+
 	defaultValidator.AddRule("required", func(v interface{}) error {
 		if v == nil || v == "" {
 			return errors.New("field is required")
 		}
 		return nil
 	})
-	
+
 	defaultValidator.AddRule("email", func(v interface{}) error {
 		str, ok := v.(string)
 		if !ok {
@@ -73,7 +71,6 @@ func init() {
 }
 
 func (r *Repository) WithValidation(validator *Validator) *Repository {
-	// Retorna repository com validação
 	return &Repository{
 		client:     r.client,
 		collection: r.collection,

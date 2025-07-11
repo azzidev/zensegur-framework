@@ -39,7 +39,6 @@ func NewRepository(client *firestore.Client, collection string) *Repository {
 	}
 }
 
-// Busca simples
 func (r *Repository) GetFirst(result interface{}, field, value string) error {
 	iter := r.client.Collection(r.collection).Where(field, "==", value).Limit(1).Documents(r.ctx)
 	doc, err := iter.Next()
@@ -70,7 +69,6 @@ func (r *Repository) GetAllSkipTake(results interface{}, skip, take int) error {
 	return r.populateSlice(iter, results)
 }
 
-// Query builder
 func (r *Repository) Where(field, op string, value interface{}) *Query {
 	return &Query{
 		repo:    r,
@@ -105,11 +103,11 @@ func (q *Query) OrderBy(field string, desc bool) *Query {
 
 func (q *Query) Execute(results interface{}) error {
 	query := q.repo.client.Collection(q.repo.collection).Query
-	
+
 	for _, filter := range q.filters {
 		query = query.Where(filter.Field, filter.Op, filter.Value)
 	}
-	
+
 	if q.orderBy != "" {
 		dir := firestore.Asc
 		if q.desc {
@@ -117,26 +115,26 @@ func (q *Query) Execute(results interface{}) error {
 		}
 		query = query.OrderBy(q.orderBy, dir)
 	}
-	
+
 	if q.offset > 0 {
 		query = query.Offset(q.offset)
 	}
-	
+
 	if q.limit > 0 {
 		query = query.Limit(q.limit)
 	}
-	
+
 	iter := query.Documents(q.repo.ctx)
 	return q.repo.populateSlice(iter, results)
 }
 
 func (q *Query) First(result interface{}) error {
 	query := q.repo.client.Collection(q.repo.collection).Query
-	
+
 	for _, filter := range q.filters {
 		query = query.Where(filter.Field, filter.Op, filter.Value)
 	}
-	
+
 	if q.orderBy != "" {
 		dir := firestore.Asc
 		if q.desc {
@@ -144,7 +142,7 @@ func (q *Query) First(result interface{}) error {
 		}
 		query = query.OrderBy(q.orderBy, dir)
 	}
-	
+
 	iter := query.Limit(1).Documents(q.repo.ctx)
 	doc, err := iter.Next()
 	if err != nil {
@@ -156,12 +154,10 @@ func (q *Query) First(result interface{}) error {
 	return doc.DataTo(result)
 }
 
-// CRUD
 func (r *Repository) Create(data interface{}) (string, error) {
-	// Converte para map para adicionar metadados
 	dataMap := r.toMap(data)
 	r.addMetadata(dataMap, false)
-	
+
 	docRef, _, err := r.client.Collection(r.collection).Add(r.ctx, dataMap)
 	if err != nil {
 		return "", err
@@ -172,7 +168,7 @@ func (r *Repository) Create(data interface{}) (string, error) {
 func (r *Repository) CreateWithID(id string, data interface{}) error {
 	dataMap := r.toMap(data)
 	r.addMetadata(dataMap, false)
-	
+
 	_, err := r.client.Collection(r.collection).Doc(id).Set(r.ctx, dataMap)
 	return err
 }
@@ -180,15 +176,14 @@ func (r *Repository) CreateWithID(id string, data interface{}) error {
 func (r *Repository) Update(id string, data interface{}) error {
 	dataMap := r.toMap(data)
 	r.addMetadata(dataMap, true)
-	
+
 	_, err := r.client.Collection(r.collection).Doc(id).Set(r.ctx, dataMap, firestore.MergeAll)
 	return err
 }
 
 func (r *Repository) UpdateFields(id string, fields map[string]interface{}) error {
-	// Adiciona updated aos fields
 	r.addMetadata(fields, true)
-	
+
 	updates := make([]firestore.Update, 0, len(fields))
 	for k, v := range fields {
 		updates = append(updates, firestore.Update{Path: k, Value: v})
@@ -197,20 +192,17 @@ func (r *Repository) UpdateFields(id string, fields map[string]interface{}) erro
 	return err
 }
 
-// Remove Delete físico - só soft delete
 func (r *Repository) Delete(id string) error {
 	return r.SoftDelete(id)
 }
 
-// Funcionalidades avançadas
 func (r *Repository) SoftDelete(id string) error {
 	fields := map[string]interface{}{
 		"deleted_at": time.Now(),
 		"active":     false,
 	}
-	// Adiciona updated automaticamente
 	r.addMetadata(fields, true)
-	
+
 	updates := make([]firestore.Update, 0, len(fields))
 	for k, v := range fields {
 		updates = append(updates, firestore.Update{Path: k, Value: v})
@@ -252,16 +244,15 @@ func (r *Repository) NewBatch() *firestore.WriteBatch {
 	return r.client.Batch()
 }
 
-// Helper para popular slice usando reflection
 func (r *Repository) populateSlice(iter *firestore.DocumentIterator, results interface{}) error {
 	v := reflect.ValueOf(results)
 	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Slice {
 		return errors.New("results must be a pointer to slice")
 	}
-	
+
 	slice := v.Elem()
 	elemType := slice.Type().Elem()
-	
+
 	for {
 		doc, err := iter.Next()
 		if err == iterator.Done {
@@ -270,39 +261,38 @@ func (r *Repository) populateSlice(iter *firestore.DocumentIterator, results int
 		if err != nil {
 			return err
 		}
-		
+
 		elem := reflect.New(elemType).Interface()
 		if err := doc.DataTo(elem); err != nil {
 			return err
 		}
-		
+
 		slice.Set(reflect.Append(slice, reflect.ValueOf(elem).Elem()))
 	}
-	
+
 	return nil
 }
 
-// Helper para converter interface{} para map
 func (r *Repository) toMap(data interface{}) map[string]interface{} {
 	v := reflect.ValueOf(data)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
-	
+
 	result := make(map[string]interface{})
 	t := v.Type()
-	
+
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := t.Field(i)
-		
+
 		tag := fieldType.Tag.Get("firestore")
 		if tag == "" {
 			tag = fieldType.Name
 		}
-		
+
 		result[tag] = field.Interface()
 	}
-	
+
 	return result
 }

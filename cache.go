@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// Cache em memória para otimizar consultas frequentes
 type Cache struct {
 	data map[string]CacheItem
 	mu   sync.RWMutex
@@ -36,7 +35,7 @@ func (c *Cache) Set(key string, value interface{}) {
 func (c *Cache) Get(key string) (interface{}, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	item, exists := c.data[key]
 	if !exists || time.Now().After(item.ExpiresAt) {
 		return nil, false
@@ -50,9 +49,7 @@ func (c *Cache) Clear() {
 	c.data = make(map[string]CacheItem)
 }
 
-// Adicionar cache ao Repository
 func (r *Repository) WithCache(cache *Cache) *Repository {
-	// Retorna nova instância com cache
 	return &Repository{
 		client:     r.client,
 		collection: r.collection,

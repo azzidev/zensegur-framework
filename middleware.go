@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// JWT Claims interface para flexibilidade
 type Claims interface {
 	GetUserID() string
 	GetUsername() string
@@ -13,10 +12,8 @@ type Claims interface {
 	GetPermissions() []string
 }
 
-// Função de validação JWT customizável
 type JWTValidator func(token string) (Claims, error)
 
-// Context interface genérico para diferentes frameworks
 type Context interface {
 	GetHeader(key string) string
 	Set(key string, value interface{})
@@ -25,7 +22,6 @@ type Context interface {
 	JSON(code int, obj interface{})
 }
 
-// Função de autenticação genérica
 func ValidateAuth(ctx Context, validator JWTValidator) (Claims, error) {
 	authHeader := ctx.GetHeader("Authorization")
 	if authHeader == "" {
@@ -36,7 +32,6 @@ func ValidateAuth(ctx Context, validator JWTValidator) (Claims, error) {
 	return validator(token)
 }
 
-// Função de autorização por roles
 func CheckRole(ctx Context, roles ...string) bool {
 	userRoles, exists := ctx.Get("roles")
 	if !exists {
@@ -54,7 +49,6 @@ func CheckRole(ctx Context, roles ...string) bool {
 	return false
 }
 
-// Função de autorização por permissões
 func CheckPermission(ctx Context, permissions ...string) bool {
 	userPermissions, exists := ctx.Get("permissions")
 	if !exists {
@@ -72,9 +66,8 @@ func CheckPermission(ctx Context, permissions ...string) bool {
 	return false
 }
 
-// Erros
 var (
-	ErrMissingAuth = errors.New("authorization header required")
-	ErrInvalidToken = errors.New("invalid token")
+	ErrMissingAuth             = errors.New("authorization header required")
+	ErrInvalidToken            = errors.New("invalid token")
 	ErrInsufficientPermissions = errors.New("insufficient permissions")
 )

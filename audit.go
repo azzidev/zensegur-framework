@@ -5,20 +5,18 @@ import (
 	"time"
 )
 
-// Auditoria automática para compliance
 type AuditLog struct {
-	ID        string    `firestore:"id"`
-	Tenant    string    `firestore:"tenant"`
-	Action    string    `firestore:"action"`
-	Table     string    `firestore:"table"`
-	RecordID  string    `firestore:"record_id"`
-	UserID    string    `firestore:"user_id"`
+	ID        string                 `firestore:"id"`
+	Tenant    string                 `firestore:"tenant"`
+	Action    string                 `firestore:"action"`
+	Table     string                 `firestore:"table"`
+	RecordID  string                 `firestore:"record_id"`
+	UserID    string                 `firestore:"user_id"`
 	Changes   map[string]interface{} `firestore:"changes"`
-	Timestamp time.Time `firestore:"timestamp"`
+	Timestamp time.Time              `firestore:"timestamp"`
 }
 
 func (r *Repository) WithAudit(userID string) *Repository {
-	// Retorna repository com auditoria habilitada
 	return &Repository{
 		client:     r.client,
 		collection: r.collection,
@@ -31,7 +29,7 @@ func (r *Repository) logAudit(action, recordID string, changes map[string]interf
 	if userID == "" {
 		return
 	}
-	
+
 	audit := AuditLog{
 		Tenant:    extractTenant(r.collection),
 		Action:    action,
@@ -41,14 +39,12 @@ func (r *Repository) logAudit(action, recordID string, changes map[string]interf
 		Changes:   changes,
 		Timestamp: time.Now(),
 	}
-	
-	// Salva em collection de auditoria
+
 	auditRepo := NewRepository(r.client, "audit_logs")
 	auditRepo.Create(audit)
 }
 
 func extractTenant(collection string) string {
-	// Extrai tenant do nome da collection
 	if len(collection) > 0 {
 		parts := []rune(collection)
 		for i, char := range parts {

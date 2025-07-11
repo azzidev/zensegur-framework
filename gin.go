@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Adapter para Gin Context
 type GinContext struct {
 	*gin.Context
 }
