@@ -4,6 +4,8 @@ go 1.21
 
 require (
 	cloud.google.com/go/firestore v1.14.0
+	github.com/gin-gonic/gin v1.10.1
+	golang.org/x/time v0.3.0
 	google.golang.org/api v0.128.0
 )
 
