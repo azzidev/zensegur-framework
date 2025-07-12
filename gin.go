@@ -149,6 +149,18 @@ func GinRateLimitMiddleware(requests int, perSeconds int) gin.HandlerFunc {
 	}
 }
 
+// Middleware de Tenant
+func GinTenantMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tenant := c.GetHeader("X-Tenant-ID")
+		if tenant == "" {
+			tenant = "default"
+		}
+		c.Set("tenant", tenant)
+		c.Next()
+	}
+}
+
 // Helpers para Gin
 func GinGetUserID(c *gin.Context) string {
 	if userID, exists := c.Get("user_id"); exists {
@@ -162,4 +174,11 @@ func GinGetUsername(c *gin.Context) string {
 		return username.(string)
 	}
 	return ""
+}
+
+func GinGetTenant(c *gin.Context) string {
+	if tenant, exists := c.Get("tenant"); exists {
+		return tenant.(string)
+	}
+	return "default"
 }
