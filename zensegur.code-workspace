@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../zensegur-portal-theme"
+		},
+		{
+			"path": "../zensegur-shell"
+		},
+		{
+			"path": "../zensegur-portal-home"
+		},
+		{
+			"path": "../zensegur-portal-users"
+		},
+		{
+			"path": "../zensegur-framework"
+		},
+		{
+			"path": "../zensegur-provider-auth"
+		}
+	]
+}
