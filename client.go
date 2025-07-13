@@ -36,7 +36,7 @@ func (c *Client) WithHeader(key, value string) *Client {
 }
 
 func (c *Client) Repository(collection string) *Repository {
-	if c.tenant != "" {
+	if c.tenant != "" && c.tenant != "default" {
 		collection = c.tenant + "_" + collection
 	}
 	return NewRepository(c.firestore, collection)
