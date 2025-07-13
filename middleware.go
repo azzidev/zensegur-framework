@@ -5,13 +5,6 @@ import (
 	"strings"
 )
 
-type Claims interface {
-	GetUserID() string
-	GetUsername() string
-	GetRoles() []string
-	GetPermissions() []string
-}
-
 type JWTValidator func(token string) (Claims, error)
 
 type Context interface {
