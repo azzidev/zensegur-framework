@@ -38,17 +38,17 @@ func (r *Repository) addMetadata(data map[string]interface{}, isUpdate bool) {
 	now := time.Now()
 
 	if !isUpdate {
-		data["created"] = CreatedBy{
-			Date:       now,
-			AuthorID:   authorID,
-			AuthorName: authorName,
+		data["created"] = map[string]interface{}{
+			"date":        now,
+			"author_id":   authorID,
+			"author_name": authorName,
 		}
 		data["active"] = true
 	}
 
-	data["updated"] = UpdatedBy{
-		Date:       now,
-		AuthorID:   authorID,
-		AuthorName: authorName,
+	data["updated"] = map[string]interface{}{
+		"date":        now,
+		"author_id":   authorID,
+		"author_name": authorName,
 	}
 }

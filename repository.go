@@ -274,9 +274,20 @@ func (r *Repository) populateSlice(iter *firestore.DocumentIterator, results int
 }
 
 func (r *Repository) toMap(data interface{}) map[string]interface{} {
+	// Se já é um mapa, retorna diretamente
+	if m, ok := data.(map[string]interface{}); ok {
+		return m
+	}
+
 	v := reflect.ValueOf(data)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
+	}
+
+	// Verificar se é struct
+	if v.Kind() != reflect.Struct {
+		// Se não é struct nem mapa, retorna mapa vazio
+		return make(map[string]interface{})
 	}
 
 	result := make(map[string]interface{})
