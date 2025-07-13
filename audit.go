@@ -40,8 +40,11 @@ func (r *Repository) logAudit(action, recordID string, changes map[string]interf
 		Timestamp: time.Now(),
 	}
 
+	// Criar auditoria sem recursão
 	auditRepo := NewRepository(r.client, "audit_logs")
-	auditRepo.Create(audit)
+	dataMap := auditRepo.toMap(audit)
+	auditRepo.addMetadata(dataMap, false)
+	auditRepo.client.Collection("audit_logs").Add(auditRepo.ctx, dataMap)
 }
 
 func extractTenant(collection string) string {
