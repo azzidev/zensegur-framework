@@ -108,7 +108,7 @@ func GinRequirePermission(permissions ...string) gin.HandlerFunc {
 // Middlewares universais
 func GinCORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "https://zensegur.com.br")
+		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 		c.Header("Access-Control-Allow-Credentials", "true")
@@ -126,7 +126,7 @@ func GinSecurityMiddleware() gin.HandlerFunc {
 		c.Header("X-Frame-Options", "DENY")
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		
+
 		// Validação de tamanho
 		if c.Request.ContentLength > 5*1024*1024 { // 5MB
 			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request too large"})
