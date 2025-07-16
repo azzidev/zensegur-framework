@@ -108,7 +108,7 @@ func GinRequirePermission(permissions ...string) gin.HandlerFunc {
 // Middlewares universais
 func GinCORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Origin", "https://zensegur.com.br")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 		c.Header("Access-Control-Allow-Credentials", "true")
