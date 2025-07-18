@@ -1,54 +1,43 @@
 package zensegur
 
 import (
-	"context"
 	"time"
 )
 
 type CreatedBy struct {
-	Date       time.Time `firestore:"date"`
-	AuthorID   string    `firestore:"author_id"`
-	AuthorName string    `firestore:"author_name"`
+	Date       time.Time `bson:"date" json:"date"`
+	AuthorID   string    `bson:"author_id" json:"author_id"`
+	AuthorName string    `bson:"author_name" json:"author_name"`
 }
 
 type UpdatedBy struct {
-	Date       time.Time `firestore:"date"`
-	AuthorID   string    `firestore:"author_id"`
-	AuthorName string    `firestore:"author_name"`
+	Date       time.Time `bson:"date" json:"date"`
+	AuthorID   string    `bson:"author_id" json:"author_id"`
+	AuthorName string    `bson:"author_name" json:"author_name"`
 }
 
-type BaseDocument struct {
-	Created   CreatedBy  `firestore:"created"`
-	Updated   UpdatedBy  `firestore:"updated"`
-	DeletedAt *time.Time `firestore:"deleted_at,omitempty"`
-	Active    bool       `firestore:"active"`
+func (r *MongoRepository[T]) WithAuthor(userID string, username string) *MongoRepository[T] {
+	clone := *r
+	clone.userID = userID
+	clone.username = username
+	return &clone
 }
 
-func (r *Repository) WithAuthor(authorID, authorName string) *Repository {
-	return &Repository{
-		client:     r.client,
-		collection: r.collection,
-		ctx:        context.WithValue(context.WithValue(r.ctx, "author_id", authorID), "author_name", authorName),
-	}
-}
-
-func (r *Repository) addMetadata(data map[string]interface{}, isUpdate bool) {
-	authorID, _ := r.ctx.Value("author_id").(string)
-	authorName, _ := r.ctx.Value("author_name").(string)
+func (r *MongoRepository[T]) addMetadataLegacy(data map[string]interface{}, isUpdate bool) {
 	now := time.Now()
 
 	if !isUpdate {
-		data["created"] = map[string]interface{}{
-			"date":        now,
-			"author_id":   authorID,
-			"author_name": authorName,
-		}
+		data["created_at"] = now
 		data["active"] = true
+		if r.userID != "" {
+			data["created_by"] = r.userID
+		}
+		if r.tenantID != "" {
+			data["tenant_id"] = r.tenantID
+		}
 	}
-
-	data["updated"] = map[string]interface{}{
-		"date":        now,
-		"author_id":   authorID,
-		"author_name": authorName,
+	data["updated_at"] = now
+	if r.userID != "" && isUpdate {
+		data["updated_by"] = r.userID
 	}
 }

@@ -1,6 +1,6 @@
-# Zensegur Framework
+# ZenSegur Framework
 
-Framework genérico para repositórios Firestore com suporte a multi-tenant e injeção de cabeçalhos.
+Framework MongoDB para Go com suporte a multi-tenant, cache, auditoria e validação.
 
 ## Instalação
 
@@ -15,160 +15,336 @@ package main
 
 import (
     "context"
+    "log"
+    "time"
+    
     "github.com/azzidev/zensegur-framework"
 )
 
+// Definir modelo
 type User struct {
-    Username string `firestore:"username" validate:"required"`
-    Email    string `firestore:"email" validate:"required,email"`
-    zensegur.BaseDocument // Adiciona created, updated, deleted_at, active
+    ID       string `bson:"_id,omitempty" json:"id,omitempty"`
+    Username string `bson:"username" json:"username"`
+    Email    string `bson:"email" json:"email"`
+    zensegur.BaseDocument // Adiciona created_at, updated_at, deleted_at, active, etc.
 }
 
 func main() {
-    ctx := context.Background()
-    
     // Criar cliente
-    client, err := zensegur.NewClient(ctx, "your-project-id")
+    ctx := context.Background()
+    client, err := zensegur.NewClient(ctx, "mongodb://localhost:27017", "zensegur")
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
     defer client.Close()
     
-    // Usar com tenant
-    userRepo := client.WithTenant("empresa1").Repository("users")
+    // Criar cache
+    cache := zensegur.NewCache(5 * time.Minute)
     
-    // Buscar com filtros (tipo MongoDB)
-    var users []User
-    err = userRepo.Where("active", "==", true).
-        Where("username", ">=", "a").
-        OrderBy("username", false).
-        Limit(10).
-        Skip(0).
-        Execute(&users)
+    // Configurar cliente com tenant e autor
+    clientWithContext := client.
+        WithTenant("empresa1").
+        WithAuthor("user123", "João Silva").
+        WithAudit(true).
+        WithCache(cache)
     
-    // Buscar primeiro com filtro
-    var user User
-    err = userRepo.Where("username", "==", "admin").First(&user)
+    // Criar repositório tipado
+    userRepo := clientWithContext.RepositoryTyped("users").(*zensegur.MongoRepository[User])
     
-    // Buscar todos (sem filtro)
-    var allUsers []User
-    err = userRepo.GetAll(&allUsers)
+    // Criar usuário
+    user := User{
+        Username: "joao.silva",
+        Email:    "joao@example.com",
+    }
     
-    // Com metadados automáticos
-    authorRepo := userRepo.WithAuthor("user123", "João Silva")
-    id, err := authorRepo.Create(user) // Adiciona created/updated automaticamente
+    // Inserir usuário (metadados são adicionados automaticamente)
+    err = userRepo.Insert(ctx, &user)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Buscar usuários com filtro
+    filter := map[string]interface{}{
+        "username": "joao.silva",
+    }
+    
+    // Buscar primeiro usuário
+    foundUser := userRepo.GetFirst(ctx, filter)
+    if foundUser != nil {
+        log.Printf("Usuário encontrado: %s", foundUser.Email)
+    }
+    
+    // Buscar todos os usuários
+    allUsers := userRepo.GetAll(ctx, map[string]interface{}{})
+    log.Printf("Total de usuários: %d", len(*allUsers))
+    
+    // Atualizar usuário
+    updateFields := map[string]interface{}{
+        "email": "joao.novo@example.com",
+    }
+    err = userRepo.Update(ctx, filter, updateFields)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Soft delete (mantém o registro mas marca como inativo)
+    err = userRepo.Delete(ctx, filter)
+    if err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
-## Métodos Disponíveis
+## Recursos Principais
 
-### Busca Simples
-- `GetFirst(result, field, value)` - Busca primeiro registro
-- `GetByID(id, result)` - Busca por ID
-- `GetAll(results)` - Busca todos os registros
-- `GetAllSkipTake(results, skip, take)` - Busca com paginação
+### Cliente
 
-### Query Builder (tipo MongoDB)
-- `Where(field, op, value)` - Adiciona filtro
-- `OrderBy(field, desc)` - Ordena resultados
-- `Limit(n)` - Limita resultados
-- `Skip(n)` - Pula registros
-- `Execute(results)` - Executa query
-- `First(result)` - Primeiro resultado da query
-
-### CRUD Avançado
-- `Create(data)` - Cria novo registro (retorna ID)
-- `CreateWithID(id, data)` - Cria com ID específico
-- `Update(id, data)` - Atualiza registro completo
-- `UpdateFields(id, fields)` - Atualiza campos específicos
-- `Delete(id)` - Deleta registro
-- `SoftDelete(id)` - Soft delete (marca como inativo)
-
-### Funcionalidades Avançadas
-- `Count()` - Conta registros
-- `Exists(field, value)` - Verifica se existe
-- `RunTransaction(fn)` - Executa transação
-- `NewBatch()` - Operações em lote
-- `WithAudit(userID)` - Habilita auditoria
-- `WithCache(cache)` - Habilita cache
-- `WithValidation(validator)` - Habilita validação
-
-### Operadores Suportados
-- `==` - Igual
-- `!=` - Diferente
-- `<` - Menor que
-- `<=` - Menor ou igual
-- `>` - Maior que
-- `>=` - Maior ou igual
-- `array-contains` - Array contém
-- `in` - Está em array
-- `not-in` - Não está em array
-
-## Funcionalidades Extras
-
-### Cache em Memória
 ```go
+// Criar cliente
+client, err := zensegur.NewClient(ctx, "mongodb://localhost:27017", "zensegur")
+
+// Configurar cliente
+client = client.WithTenant("empresa1")
+client = client.WithAuthor("user123", "João Silva")
+client = client.WithAudit(true)
+client = client.WithCache(cache)
+
+// Obter repositório
+repo := client.Repository("collection")
+```
+
+### Repositório
+
+```go
+// Busca simples
+user := repo.GetFirst(ctx, map[string]interface{}{"username": "admin"})
+users := repo.GetAll(ctx, map[string]interface{}{"active": true})
+
+// Paginação
+result := repo.GetAllSkipTake(ctx, filter, 0, 10)
+log.Printf("Total: %d, Itens: %d", result.TotalCount, len(result.Items))
+
+// CRUD
+id, err := repo.Insert(ctx, &user)
+err = repo.Update(ctx, filter, updateFields)
+err = repo.Delete(ctx, filter) // Soft delete
+err = repo.DeleteForce(ctx, filter) // Hard delete
+
+// Operações em lote
+err = repo.InsertAll(ctx, &users)
+err = repo.UpdateMany(ctx, filter, fields)
+err = repo.DeleteMany(ctx, filter)
+
+// Arrays
+err = repo.PushMany(ctx, filter, map[string]interface{}{"tags": "novo"})
+err = repo.PullMany(ctx, filter, map[string]interface{}{"tags": "remover"})
+```
+
+### Query Builder
+
+```go
+// Iniciar query
+query := repo.Where("username", "==", "admin")
+
+// Adicionar filtros
+query = query.Where("active", "==", true)
+query = query.Where("age", ">", 18)
+
+// Ordenação e paginação
+query = query.OrderBy("created_at", true) // true = descendente
+query = query.Skip(10).Limit(5)
+
+// Executar consulta
+users, err := query.Execute()
+
+// Buscar primeiro resultado
+var user User
+err = query.First(&user)
+```
+
+### Cache
+
+```go
+// Criar cache
 cache := zensegur.NewCache(5 * time.Minute)
-repo := userRepo.WithCache(cache)
+
+// Usar cache
+repo := repo.WithCache(cache)
+
+// Operações manuais
+cache.Set("key", value)
+cache.SetWithExpiration("key", value, 10*time.Minute)
+value := cache.Get("key")
+cache.Delete("key")
+cache.Delete("prefix*") // Wildcard
 ```
 
-### Auditoria Automática
+### Auditoria
+
 ```go
-// Todas as operações serão auditadas
-auditRepo := userRepo.WithAudit("user123")
-auditRepo.Create(user) // Gera log de auditoria
+// Habilitar auditoria
+repo := repo.WithAudit(true)
+
+// A auditoria é automática para Insert, Update e Delete
+// Os logs são armazenados na coleção "audit_logs"
 ```
 
-### Validação com Tags
-```go
-type User struct {
-    Email string `validate:"required,email"`
-    Name  string `validate:"required"`
-}
+### Validação
 
+```go
+// Criar validador
 validator := zensegur.NewValidator()
-repo := userRepo.WithValidation(validator)
-```
 
-### Middleware de Autenticação
-```go
-// Implementar interface Claims
-type UserClaims struct {
-    UserID   string   `json:"sub"`
-    Username string   `json:"username"`
-    Roles    []string `json:"roles"`
-    Permissions []string `json:"permissions"`
+// Adicionar regras
+validator.AddRule("phone", func(v interface{}) error {
+    // Validação personalizada
+    return nil
+})
+
+// Usar validador
+repo := repo.WithValidation(validator)
+
+// Validar manualmente
+type Product struct {
+    Name  string `validate:"required"`
+    Email string `validate:"email"`
+    Phone string `validate:"phone"`
 }
 
-func (u *UserClaims) GetUserID() string { return u.UserID }
-func (u *UserClaims) GetUsername() string { return u.Username }
-func (u *UserClaims) GetRoles() []string { return u.Roles }
-func (u *UserClaims) GetPermissions() []string { return u.Permissions }
-
-// Usar middleware
-r.Use(zensegur.AuthMiddleware(myJWTValidator))
-r.GET("/admin", zensegur.RequireRole("admin"), handler)
-r.GET("/users", zensegur.RequirePermission("users.read"), handler)
+product := Product{...}
+err := validator.Validate(product)
 ```
 
-### Metadados Automáticos
+### Multi-Tenant
+
 ```go
-// Todos os documentos terão automaticamente:
-type MyDocument struct {
-    Name string `firestore:"name"`
-    zensegur.BaseDocument // created, updated, deleted_at, active
+// Configurar tenant
+client := client.WithTenant("empresa1")
+
+// O tenant é aplicado automaticamente:
+// 1. Prefixo na collection: "empresa1_users"
+// 2. Filtro automático em consultas
+```
+
+### Gin Middleware
+
+```go
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/azzidev/zensegur-framework"
+)
+
+func jwtValidator(token string) (zensegur.Claims, error) {
+    return zensegur.ValidateJWT(token)
 }
 
-// Usar com autor
-repo := userRepo.WithAuthor("user123", "João Silva")
-id, err := repo.Create(doc) // Adiciona created/updated automaticamente
-repo.Update(id, doc)        // Atualiza updated automaticamente
-repo.Delete(id)             // Soft delete (marca deleted_at)
+func setupRouter() *gin.Engine {
+    r := gin.Default()
+    
+    // Middlewares de autenticação
+    r.Use(zensegur.GinAuthMiddleware(jwtValidator))
+    r.Use(zensegur.GinCookieAuthMiddleware(jwtValidator, "auth-token"))
+    
+    // Middlewares de autorização
+    r.GET("/admin", zensegur.GinRequireRole("admin"), handler)
+    r.GET("/users", zensegur.GinRequirePermission("users.read"), handler)
+    
+    // Middlewares de segurança
+    r.Use(zensegur.GinCORSMiddleware())
+    r.Use(zensegur.GinSecurityMiddleware())
+    r.Use(zensegur.GinRateLimitMiddleware(100, 60)) // 100 req/min
+    r.Use(zensegur.GinTenantMiddleware())
+    
+    // Helpers
+    r.GET("/profile", func(c *gin.Context) {
+        userID := zensegur.GinGetUserID(c)
+        username := zensegur.GinGetUsername(c)
+        tenant := zensegur.GinGetTenant(c)
+        // ...
+    })
+    
+    return r
+}
+```
+
+### JWT
+
+```go
+// Gerar token
+token, err := zensegur.GenerateJWT(
+    "user123",
+    "joao.silva",
+    []string{"admin", "user"},
+    []string{"users.read", "users.write"},
+)
+
+// Validar token
+claims, err := zensegur.ValidateJWT(token)
+if err != nil {
+    // Token inválido
+}
+
+// Acessar claims
+userID := claims.GetUserID()
+username := claims.GetUsername()
+roles := claims.GetRoles()
+permissions := claims.GetPermissions()
+```
+
+### Resolver Tenant
+
+```go
+// Resolver tenant a partir do username (formato: user@tenant)
+client, username, err := client.ResolveUserTenant("joao@empresa1")
+if err != nil {
+    // Tenant não encontrado
+}
+
+// O client já está configurado com o tenant correto
+repo := client.Repository("users")
+```
+
+## Estruturas de Dados
+
+### BaseDocument
+
+```go
+type BaseDocument struct {
+    CreatedAt  time.Time  `bson:"created_at" json:"created_at"`
+    UpdatedAt  time.Time  `bson:"updated_at" json:"updated_at"`
+    DeletedAt  *time.Time `bson:"deleted_at,omitempty" json:"deleted_at,omitempty"`
+    Active     bool       `bson:"active" json:"active"`
+    CreatedBy  string     `bson:"created_by,omitempty" json:"created_by,omitempty"`
+    UpdatedBy  string     `bson:"updated_by,omitempty" json:"updated_by,omitempty"`
+}
+```
+
+### Interfaces
+
+```go
+// Implementar estas interfaces para suporte a metadados
+type Timestampable interface {
+    SetCreatedAt(time.Time)
+    SetUpdatedAt(time.Time)
+}
+
+type Activable interface {
+    SetActive(bool)
+}
+
+type Authorable interface {
+    SetCreatedBy(string)
+    SetUpdatedBy(string)
+}
+
+// BaseDocument já implementa todas estas interfaces
 ```
 
 ## Características Importantes
 
-- **Collection por Tenant**: `empresa1_users`, `empresa2_users` (sem campo tenant no documento)
-- **Apenas Soft Delete**: Delete físico removido, só soft delete
-- **Metadados Automáticos**: created/updated em todas operações
+- **Collection por Tenant**: `empresa1_users`, `empresa2_users`
+- **Apenas Soft Delete**: Delete físico disponível via `DeleteForce`
+- **Metadados Automáticos**: created_at/updated_at em todas operações
+- **Cache Inteligente**: Invalidação automática em operações de escrita
 - **Thread Safe**: Todas operações são thread-safe
+- **Zero Reflection**: Uso mínimo de reflection apenas para metadados

@@ -2,49 +2,61 @@ package zensegur
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
 type AuditLog struct {
-	ID        string                 `firestore:"id"`
-	Tenant    string                 `firestore:"tenant"`
-	Action    string                 `firestore:"action"`
-	Table     string                 `firestore:"table"`
-	RecordID  string                 `firestore:"record_id"`
-	UserID    string                 `firestore:"user_id"`
-	Changes   map[string]interface{} `firestore:"changes"`
-	Timestamp time.Time              `firestore:"timestamp"`
+	ID        string                 `bson:"_id,omitempty" json:"id"`
+	Tenant    string                 `bson:"tenant" json:"tenant"`
+	Action    string                 `bson:"action" json:"action"`
+	Table     string                 `bson:"table" json:"table"`
+	RecordID  string                 `bson:"record_id" json:"record_id"`
+	UserID    string                 `bson:"user_id" json:"user_id"`
+	Changes   map[string]interface{} `bson:"changes" json:"changes"`
+	Timestamp time.Time              `bson:"timestamp" json:"timestamp"`
 }
 
-func (r *Repository) WithAudit(userID string) *Repository {
-	return &Repository{
-		client:     r.client,
-		collection: r.collection,
-		ctx:        context.WithValue(r.ctx, "audit_user", userID),
-	}
+func (r *MongoRepository[T]) WithAudit(enabled bool) *MongoRepository[T] {
+	clone := *r
+	clone.auditLog = enabled
+	return &clone
 }
 
-func (r *Repository) logAudit(action, recordID string, changes map[string]interface{}) {
-	userID, _ := r.ctx.Value("audit_user").(string)
-	if userID == "" {
+func (r *MongoRepository[T]) logAuditLegacy(ctx context.Context, action string, id interface{}, oldData, newData interface{}) {
+	if r.userID == "" {
 		return
 	}
 
 	audit := AuditLog{
-		Tenant:    extractTenant(r.collection),
+		Tenant:    extractTenant(r.collection.Name()),
 		Action:    action,
-		Table:     r.collection,
-		RecordID:  recordID,
-		UserID:    userID,
-		Changes:   changes,
+		Table:     r.collection.Name(),
+		RecordID:  toString(id),
+		UserID:    r.userID,
+		Changes:   extractChanges(oldData, newData),
 		Timestamp: time.Now(),
 	}
 
-	// Criar auditoria sem recursão
-	auditRepo := NewRepository(r.client, "audit_logs")
-	dataMap := auditRepo.toMap(audit)
-	auditRepo.addMetadata(dataMap, false)
-	auditRepo.client.Collection("audit_logs").Add(auditRepo.ctx, dataMap)
+	_, _ = r.database.Collection("audit_logs").InsertOne(ctx, audit)
+}
+
+func toString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+func extractChanges(oldData, newData interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	if oldData != nil {
+		result["old"] = oldData
+	}
+	if newData != nil {
+		result["new"] = newData
+	}
+	return result
 }
 
 func extractTenant(collection string) string {

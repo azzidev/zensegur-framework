@@ -6,53 +6,96 @@ import (
 )
 
 type Cache struct {
-	data map[string]CacheItem
-	mu   sync.RWMutex
-	ttl  time.Duration
+	items map[string]cacheItem
+	mu    sync.RWMutex
 }
 
-type CacheItem struct {
-	Value     interface{}
-	ExpiresAt time.Time
+type cacheItem struct {
+	value      interface{}
+	expiration int64
 }
 
-func NewCache(ttl time.Duration) *Cache {
-	return &Cache{
-		data: make(map[string]CacheItem),
-		ttl:  ttl,
+func NewCache(defaultExpiration time.Duration) *Cache {
+	cache := &Cache{
+		items: make(map[string]cacheItem),
 	}
+	
+	go cache.startGC(defaultExpiration)
+	
+	return cache
 }
 
 func (c *Cache) Set(key string, value interface{}) {
+	c.SetWithExpiration(key, value, 5*time.Minute)
+}
+
+func (c *Cache) SetWithExpiration(key string, value interface{}, duration time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.data[key] = CacheItem{
-		Value:     value,
-		ExpiresAt: time.Now().Add(c.ttl),
+	
+	c.items[key] = cacheItem{
+		value:      value,
+		expiration: time.Now().Add(duration).UnixNano(),
 	}
 }
 
-func (c *Cache) Get(key string) (interface{}, bool) {
+func (c *Cache) Get(key string) interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
-	item, exists := c.data[key]
-	if !exists || time.Now().After(item.ExpiresAt) {
-		return nil, false
+	
+	item, found := c.items[key]
+	if !found {
+		return nil
 	}
-	return item.Value, true
+	
+	if time.Now().UnixNano() > item.expiration {
+		return nil
+	}
+	
+	return item.value
 }
 
-func (c *Cache) Clear() {
+func (c *Cache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.data = make(map[string]CacheItem)
+	
+	if key == "*" {
+		c.items = make(map[string]cacheItem)
+		return
+	}
+	
+	if len(key) > 0 && key[len(key)-1] == '*' {
+		prefix := key[:len(key)-1]
+		for k := range c.items {
+			if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+				delete(c.items, k)
+			}
+		}
+		return
+	}
+	
+	delete(c.items, key)
 }
 
-func (r *Repository) WithCache(cache *Cache) *Repository {
-	return &Repository{
-		client:     r.client,
-		collection: r.collection,
-		ctx:        r.ctx,
+func (c *Cache) startGC(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	
+	for {
+		<-ticker.C
+		c.deleteExpired()
+	}
+}
+
+func (c *Cache) deleteExpired() {
+	now := time.Now().UnixNano()
+	
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	for k, v := range c.items {
+		if now > v.expiration {
+			delete(c.items, k)
+		}
 	}
 }

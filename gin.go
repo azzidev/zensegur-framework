@@ -32,7 +32,6 @@ func (g *GinContext) JSON(code int, obj interface{}) {
 	g.Context.JSON(code, obj)
 }
 
-// Middleware Gin específico
 func GinAuthMiddleware(validator JWTValidator) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := &GinContext{c}
@@ -43,7 +42,6 @@ func GinAuthMiddleware(validator JWTValidator) gin.HandlerFunc {
 			return
 		}
 
-		// Adiciona claims no contexto
 		c.Set("user_id", claims.GetUserID())
 		c.Set("username", claims.GetUsername())
 		c.Set("roles", claims.GetRoles())
@@ -70,7 +68,6 @@ func GinCookieAuthMiddleware(validator JWTValidator, cookieName string) gin.Hand
 			return
 		}
 
-		// Adiciona claims no contexto
 		c.Set("user_id", claims.GetUserID())
 		c.Set("username", claims.GetUsername())
 		c.Set("roles", claims.GetRoles())
@@ -105,7 +102,6 @@ func GinRequirePermission(permissions ...string) gin.HandlerFunc {
 	}
 }
 
-// Middlewares universais
 func GinCORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "https://zensegur.com.br")
@@ -127,8 +123,7 @@ func GinSecurityMiddleware() gin.HandlerFunc {
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 
-		// Validação de tamanho
-		if c.Request.ContentLength > 5*1024*1024 { // 5MB
+		if c.Request.ContentLength > 5*1024*1024 {
 			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request too large"})
 			c.Abort()
 			return
@@ -149,7 +144,6 @@ func GinRateLimitMiddleware(requests int, perSeconds int) gin.HandlerFunc {
 	}
 }
 
-// Middleware de Tenant
 func GinTenantMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tenant := c.GetHeader("X-Tenant-ID")
@@ -161,7 +155,6 @@ func GinTenantMiddleware() gin.HandlerFunc {
 	}
 }
 
-// Helpers para Gin
 func GinGetUserID(c *gin.Context) string {
 	if userID, exists := c.Get("user_id"); exists {
 		return userID.(string)

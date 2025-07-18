@@ -70,10 +70,7 @@ func init() {
 	})
 }
 
-func (r *Repository) WithValidation(validator *Validator) *Repository {
-	return &Repository{
-		client:     r.client,
-		collection: r.collection,
-		ctx:        r.ctx,
-	}
+func (r *MongoRepository[T]) WithValidation(validator *Validator) *MongoRepository[T] {
+	clone := *r
+	return &clone
 }

@@ -2,308 +2,450 @@ package zensegur
 
 import (
 	"context"
-	"errors"
-	"reflect"
+	"fmt"
 	"time"
 
-	"cloud.google.com/go/firestore"
-	"google.golang.org/api/iterator"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type Filter struct {
-	Field string
-	Op    string
-	Value interface{}
+type DataList[T any] struct {
+	Items      []T   `json:"items"`
+	TotalCount int64 `json:"totalCount"`
 }
 
-type Repository struct {
-	client     *firestore.Client
-	collection string
-	ctx        context.Context
+type MongoRepository[T any] struct {
+	client     *mongo.Client
+	database   *mongo.Database
+	collection *mongo.Collection
+	tenantID   string
+	userID     string
+	username   string
+	cache      *Cache
+	auditLog   bool
 }
 
-type Query struct {
-	repo    *Repository
-	filters []Filter
-	limit   int
-	offset  int
-	orderBy string
-	desc    bool
-}
-
-func NewRepository(client *firestore.Client, collection string) *Repository {
-	return &Repository{
+func NewMongoRepository[T any](client *mongo.Client, database string, collection string) *MongoRepository[T] {
+	return &MongoRepository[T]{
 		client:     client,
-		collection: collection,
-		ctx:        context.Background(),
+		database:   client.Database(database),
+		collection: client.Database(database).Collection(collection),
+		auditLog:   false,
 	}
 }
 
-func (r *Repository) GetFirst(result interface{}, field, value string) error {
-	iter := r.client.Collection(r.collection).Where(field, "==", value).Limit(1).Documents(r.ctx)
-	doc, err := iter.Next()
-	if err != nil {
-		if err == iterator.Done {
-			return errors.New("not found")
+func (r *MongoRepository[T]) WithTenant(tenantID string) *MongoRepository[T] {
+	clone := *r
+	clone.tenantID = tenantID
+	if tenantID != "" {
+		clone.collection = r.database.Collection(tenantID + "_" + r.collection.Name())
+	}
+	return &clone
+}
+
+func (r *MongoRepository[T]) WithCache(cache *Cache) *MongoRepository[T] {
+	clone := *r
+	clone.cache = cache
+	return &clone
+}
+
+func (r *MongoRepository[T]) ChangeCollection(collectionName string) {
+	r.collection = r.database.Collection(collectionName)
+}
+
+func (r *MongoRepository[T]) GetAll(
+	ctx context.Context,
+	filter map[string]interface{},
+	optsFind ...*options.FindOptions,
+) *[]T {
+	if r.cache != nil {
+		cacheKey := r.getCacheKey(fmt.Sprintf("all:%v", filter))
+		if cached := r.cache.Get(cacheKey); cached != nil {
+			if results, ok := cached.(*[]T); ok {
+				return results
+			}
 		}
+	}
+
+	if r.tenantID != "" {
+		filter["tenant_id"] = r.tenantID
+	}
+
+	if _, hasActiveFilter := filter["active"]; !hasActiveFilter {
+		filter["active"] = true
+	}
+	var results []T
+	cursor, err := r.collection.Find(ctx, filter, optsFind...)
+	if err != nil {
+		return &results
+	}
+	defer cursor.Close(ctx)
+
+	if err := cursor.All(ctx, &results); err != nil {
+		return &results
+	}
+
+	if r.cache != nil {
+		cacheKey := r.getCacheKey(fmt.Sprintf("all:%v", filter))
+		r.cache.Set(cacheKey, &results)
+	}
+
+	return &results
+}
+
+func (r *MongoRepository[T]) GetAllSkipTake(
+	ctx context.Context,
+	filter map[string]interface{},
+	skip int64,
+	take int64,
+	optsFind ...*options.FindOptions,
+) *DataList[T] {
+	var results []T
+	findOptions := options.Find().SetSkip(skip).SetLimit(take)
+	if len(optsFind) > 0 {
+		if optsFind[0].Sort != nil {
+			findOptions.SetSort(optsFind[0].Sort)
+		}
+	}
+
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return &DataList[T]{Items: results, TotalCount: 0}
+	}
+	defer cursor.Close(ctx)
+
+	if err := cursor.All(ctx, &results); err != nil {
+		return &DataList[T]{Items: results, TotalCount: 0}
+	}
+
+	count := r.Count(ctx, filter)
+	return &DataList[T]{Items: results, TotalCount: count}
+}
+
+func (r *MongoRepository[T]) GetFirst(
+	ctx context.Context,
+	filter map[string]interface{},
+) *T {
+	if r.cache != nil {
+		cacheKey := r.getCacheKey(fmt.Sprintf("first:%v", filter))
+		if cached := r.cache.Get(cacheKey); cached != nil {
+			if result, ok := cached.(*T); ok {
+				return result
+			}
+		}
+	}
+
+	if r.tenantID != "" {
+		filter["tenant_id"] = r.tenantID
+	}
+
+	if _, hasActiveFilter := filter["active"]; !hasActiveFilter {
+		filter["active"] = true
+	}
+	var result T
+	err := r.collection.FindOne(ctx, filter).Decode(&result)
+	if err != nil {
+		return nil
+	}
+
+	if r.cache != nil {
+		cacheKey := r.getCacheKey(fmt.Sprintf("first:%v", filter))
+		r.cache.Set(cacheKey, &result)
+	}
+
+	return &result
+}
+
+func (r *MongoRepository[T]) Insert(
+	ctx context.Context,
+	entity *T,
+) error {
+	*entity = ApplyMetadata(*entity, false, r.userID)
+
+	res, err := r.collection.InsertOne(ctx, entity)
+	if err != nil {
 		return err
 	}
-	return doc.DataTo(result)
-}
 
-func (r *Repository) GetByID(id string, result interface{}) error {
-	doc, err := r.client.Collection(r.collection).Doc(id).Get(r.ctx)
-	if err != nil {
-		return err
-	}
-	return doc.DataTo(result)
-}
-
-func (r *Repository) GetAll(results interface{}) error {
-	iter := r.client.Collection(r.collection).Documents(r.ctx)
-	return r.populateSlice(iter, results)
-}
-
-func (r *Repository) GetAllSkipTake(results interface{}, skip, take int) error {
-	iter := r.client.Collection(r.collection).Offset(skip).Limit(take).Documents(r.ctx)
-	return r.populateSlice(iter, results)
-}
-
-func (r *Repository) Where(field, op string, value interface{}) *Query {
-	return &Query{
-		repo:    r,
-		filters: []Filter{{Field: field, Op: op, Value: value}},
-	}
-}
-
-func (r *Repository) Query() *Query {
-	return &Query{repo: r}
-}
-
-func (q *Query) Where(field, op string, value interface{}) *Query {
-	q.filters = append(q.filters, Filter{Field: field, Op: op, Value: value})
-	return q
-}
-
-func (q *Query) Limit(limit int) *Query {
-	q.limit = limit
-	return q
-}
-
-func (q *Query) Skip(offset int) *Query {
-	q.offset = offset
-	return q
-}
-
-func (q *Query) OrderBy(field string, desc bool) *Query {
-	q.orderBy = field
-	q.desc = desc
-	return q
-}
-
-func (q *Query) Execute(results interface{}) error {
-	query := q.repo.client.Collection(q.repo.collection).Query
-
-	for _, filter := range q.filters {
-		query = query.Where(filter.Field, filter.Op, filter.Value)
+	if r.auditLog {
+		r.logAudit(ctx, "insert", res.InsertedID, nil, entity)
 	}
 
-	if q.orderBy != "" {
-		dir := firestore.Asc
-		if q.desc {
-			dir = firestore.Desc
-		}
-		query = query.OrderBy(q.orderBy, dir)
-	}
-
-	if q.offset > 0 {
-		query = query.Offset(q.offset)
-	}
-
-	if q.limit > 0 {
-		query = query.Limit(q.limit)
-	}
-
-	iter := query.Documents(q.repo.ctx)
-	return q.repo.populateSlice(iter, results)
-}
-
-func (q *Query) First(result interface{}) error {
-	query := q.repo.client.Collection(q.repo.collection).Query
-
-	for _, filter := range q.filters {
-		query = query.Where(filter.Field, filter.Op, filter.Value)
-	}
-
-	if q.orderBy != "" {
-		dir := firestore.Asc
-		if q.desc {
-			dir = firestore.Desc
-		}
-		query = query.OrderBy(q.orderBy, dir)
-	}
-
-	iter := query.Limit(1).Documents(q.repo.ctx)
-	doc, err := iter.Next()
-	if err != nil {
-		if err == iterator.Done {
-			return errors.New("not found")
-		}
-		return err
-	}
-	return doc.DataTo(result)
-}
-
-func (r *Repository) Create(data interface{}) (string, error) {
-	dataMap := r.toMap(data)
-	r.addMetadata(dataMap, false)
-
-	docRef, _, err := r.client.Collection(r.collection).Add(r.ctx, dataMap)
-	if err != nil {
-		return "", err
-	}
-	return docRef.ID, nil
-}
-
-func (r *Repository) CreateWithID(id string, data interface{}) error {
-	dataMap := r.toMap(data)
-	r.addMetadata(dataMap, false)
-
-	_, err := r.client.Collection(r.collection).Doc(id).Set(r.ctx, dataMap)
-	return err
-}
-
-func (r *Repository) Update(id string, data interface{}) error {
-	dataMap := r.toMap(data)
-	r.addMetadata(dataMap, true)
-
-	_, err := r.client.Collection(r.collection).Doc(id).Set(r.ctx, dataMap, firestore.MergeAll)
-	return err
-}
-
-func (r *Repository) UpdateFields(id string, fields map[string]interface{}) error {
-	r.addMetadata(fields, true)
-
-	updates := make([]firestore.Update, 0, len(fields))
-	for k, v := range fields {
-		updates = append(updates, firestore.Update{Path: k, Value: v})
-	}
-	_, err := r.client.Collection(r.collection).Doc(id).Update(r.ctx, updates)
-	return err
-}
-
-func (r *Repository) Delete(id string) error {
-	return r.SoftDelete(id)
-}
-
-func (r *Repository) SoftDelete(id string) error {
-	fields := map[string]interface{}{
-		"deleted_at": time.Now(),
-		"active":     false,
-	}
-	r.addMetadata(fields, true)
-
-	updates := make([]firestore.Update, 0, len(fields))
-	for k, v := range fields {
-		updates = append(updates, firestore.Update{Path: k, Value: v})
-	}
-	_, err := r.client.Collection(r.collection).Doc(id).Update(r.ctx, updates)
-	return err
-}
-
-func (r *Repository) Count() (int, error) {
-	iter := r.client.Collection(r.collection).Documents(r.ctx)
-	count := 0
-	for {
-		_, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return 0, err
-		}
-		count++
-	}
-	return count, nil
-}
-
-func (r *Repository) Exists(field, value string) (bool, error) {
-	iter := r.client.Collection(r.collection).Where(field, "==", value).Limit(1).Documents(r.ctx)
-	_, err := iter.Next()
-	if err == iterator.Done {
-		return false, nil
-	}
-	return err == nil, err
-}
-
-func (r *Repository) RunTransaction(fn func(context.Context, *firestore.Transaction) error) error {
-	return r.client.RunTransaction(r.ctx, fn)
-}
-
-func (r *Repository) NewBatch() *firestore.WriteBatch {
-	return r.client.Batch()
-}
-
-func (r *Repository) populateSlice(iter *firestore.DocumentIterator, results interface{}) error {
-	v := reflect.ValueOf(results)
-	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Slice {
-		return errors.New("results must be a pointer to slice")
-	}
-
-	slice := v.Elem()
-	elemType := slice.Type().Elem()
-
-	for {
-		doc, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		elem := reflect.New(elemType).Interface()
-		if err := doc.DataTo(elem); err != nil {
-			return err
-		}
-
-		slice.Set(reflect.Append(slice, reflect.ValueOf(elem).Elem()))
+	if r.cache != nil {
+		r.cache.Delete(r.getCacheKey("*"))
 	}
 
 	return nil
 }
 
-func (r *Repository) toMap(data interface{}) map[string]interface{} {
-	// Se já é um mapa, retorna diretamente
-	if m, ok := data.(map[string]interface{}); ok {
-		return m
+type Timestampable interface {
+	SetCreatedAt(time.Time)
+	SetUpdatedAt(time.Time)
+}
+
+type Activable interface {
+	SetActive(bool)
+}
+
+type Authorable interface {
+	SetCreatedBy(string)
+	SetUpdatedBy(string)
+}
+
+func (r *MongoRepository[T]) logAudit(ctx context.Context, action string, id interface{}, oldData, newData interface{}) {
+	audit := map[string]interface{}{
+		"collection":  r.collection.Name(),
+		"document_id": id,
+		"action":      action,
+		"timestamp":   time.Now(),
+		"user_id":     r.userID,
+		"username":    r.username,
 	}
 
-	v := reflect.ValueOf(data)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
+	if oldData != nil {
+		audit["old_data"] = oldData
 	}
 
-	// Verificar se é struct
-	if v.Kind() != reflect.Struct {
-		// Se não é struct nem mapa, retorna mapa vazio
-		return make(map[string]interface{})
+	if newData != nil {
+		audit["new_data"] = newData
 	}
 
-	result := make(map[string]interface{})
-	t := v.Type()
+	_, _ = r.database.Collection("audit_logs").InsertOne(ctx, audit)
+}
 
-	for i := 0; i < v.NumField(); i++ {
-		field := v.Field(i)
-		fieldType := t.Field(i)
+func (r *MongoRepository[T]) getCacheKey(key string) string {
+	prefix := r.collection.Name()
+	if r.tenantID != "" {
+		prefix = r.tenantID + "_" + prefix
+	}
+	return prefix + ":" + key
+}
 
-		tag := fieldType.Tag.Get("firestore")
-		if tag == "" {
-			tag = fieldType.Name
+func (r *MongoRepository[T]) InsertAll(
+	ctx context.Context,
+	entities *[]T,
+) error {
+	var documents []interface{}
+	for _, entity := range *entities {
+		documents = append(documents, entity)
+	}
+	_, err := r.collection.InsertMany(ctx, documents)
+	return err
+}
+
+func (r *MongoRepository[T]) Replace(
+	ctx context.Context,
+	filter map[string]interface{},
+	entity *T,
+) error {
+	_, err := r.collection.ReplaceOne(ctx, filter, entity)
+	return err
+}
+
+func (r *MongoRepository[T]) Update(
+	ctx context.Context,
+	filter map[string]interface{},
+	fields interface{},
+) error {
+	var oldDocPtr *T
+	if r.auditLog {
+		oldDocPtr = r.GetFirst(ctx, filter)
+	}
+
+	fieldsMap, ok := fields.(map[string]interface{})
+	if ok {
+		fieldsMap["updated_at"] = time.Now()
+		if r.userID != "" {
+			fieldsMap["updated_by"] = r.userID
 		}
-
-		result[tag] = field.Interface()
+		fields = fieldsMap
+	}
+	update := bson.M{"$set": fields}
+	res, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return err
 	}
 
-	return result
+	if r.auditLog && res.MatchedCount > 0 {
+		newDocPtr := r.GetFirst(ctx, filter)
+		if newDocPtr != nil {
+			r.logAudit(ctx, "update", filter, oldDocPtr, newDocPtr)
+		}
+	}
+	if r.cache != nil {
+		r.cache.Delete(r.getCacheKey("*"))
+	}
+
+	return nil
+}
+
+func (r *MongoRepository[T]) Delete(
+	ctx context.Context,
+	filter map[string]interface{},
+) error {
+	var oldDocPtr *T
+	if r.auditLog {
+		oldDocPtr = r.GetFirst(ctx, filter)
+	}
+
+	if r.tenantID != "" {
+		filter["tenant_id"] = r.tenantID
+	}
+
+	deleteData := bson.M{
+		"deleted_at": time.Now(),
+		"active":     false,
+		"updated_at": time.Now(),
+	}
+
+	if r.userID != "" {
+		deleteData["updated_by"] = r.userID
+	}
+	update := bson.M{"$set": deleteData}
+	res, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return err
+	}
+
+	if r.auditLog && res.MatchedCount > 0 && oldDocPtr != nil {
+		r.logAudit(ctx, "delete", filter, oldDocPtr, nil)
+	}
+	if r.cache != nil {
+		r.cache.Delete(r.getCacheKey("*"))
+	}
+
+	return nil
+}
+
+func (r *MongoRepository[T]) DeleteMany(
+	ctx context.Context,
+	filter map[string]interface{},
+) error {
+	update := bson.M{"$set": bson.M{"deleted_at": time.Now(), "active": false}}
+	_, err := r.collection.UpdateMany(ctx, filter, update)
+	return err
+}
+
+func (r *MongoRepository[T]) DeleteForce(
+	ctx context.Context,
+	filter map[string]interface{},
+) error {
+	_, err := r.collection.DeleteOne(ctx, filter)
+	return err
+}
+
+func (r *MongoRepository[T]) DeleteManyForce(
+	ctx context.Context,
+	filter map[string]interface{},
+) error {
+	_, err := r.collection.DeleteMany(ctx, filter)
+	return err
+}
+
+func (r *MongoRepository[T]) Aggregate(
+	ctx context.Context,
+	pipeline []interface{},
+) (*mongo.Cursor, error) {
+	return r.collection.Aggregate(ctx, pipeline)
+}
+
+func (r *MongoRepository[T]) DefaultAggregate(
+	ctx context.Context,
+	filter bson.A,
+) (*mongo.Cursor, error) {
+	return r.collection.Aggregate(ctx, filter)
+}
+
+func (r *MongoRepository[T]) Count(
+	ctx context.Context,
+	filter map[string]interface{},
+	optsFind ...*options.CountOptions,
+) int64 {
+	count, err := r.collection.CountDocuments(ctx, filter, optsFind...)
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+func (r *MongoRepository[T]) GetLock(
+	ctx context.Context,
+	id interface{},
+) (*T, error) {
+	filter := bson.M{"_id": id, "locked": bson.M{"$ne": true}}
+	update := bson.M{"$set": bson.M{"locked": true, "locked_at": time.Now()}}
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+	var result T
+	err := r.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (r *MongoRepository[T]) Unlock(
+	ctx context.Context,
+	id interface{},
+) error {
+	filter := bson.M{"_id": id}
+	update := bson.M{"$set": bson.M{"locked": false, "locked_at": nil}}
+	_, err := r.collection.UpdateOne(ctx, filter, update)
+	return err
+}
+
+func (r *MongoRepository[T]) UpdateMany(
+	ctx context.Context,
+	filter map[string]interface{},
+	fields interface{},
+) error {
+	update := bson.M{"$set": fields}
+	_, err := r.collection.UpdateMany(ctx, filter, update)
+	return err
+}
+
+func (r *MongoRepository[T]) PushMany(
+	ctx context.Context,
+	filter map[string]interface{},
+	fields interface{},
+) error {
+	update := bson.M{"$push": fields}
+	_, err := r.collection.UpdateMany(ctx, filter, update)
+	return err
+}
+
+func (r *MongoRepository[T]) PullMany(
+	ctx context.Context,
+	filter map[string]interface{},
+	fields interface{},
+) error {
+	update := bson.M{"$pull": fields}
+	_, err := r.collection.UpdateMany(ctx, filter, update)
+	return err
+}
+
+func (r *MongoRepository[T]) SetExpiredAfterInsert(ctx context.Context, seconds int32) error {
+	indexModel := mongo.IndexModel{
+		Keys:    bson.M{"created_at": 1},
+		Options: options.Index().SetExpireAfterSeconds(seconds),
+	}
+	_, err := r.collection.Indexes().CreateOne(ctx, indexModel)
+	return err
+}
+
+func (r *MongoRepository[T]) FindOneAndUpdate(
+	ctx context.Context,
+	filter map[string]interface{},
+	fields map[string]interface{},
+) (*T, error) {
+	update := bson.M{"$set": fields}
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+
+	var result T
+	err := r.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
