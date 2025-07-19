@@ -19,6 +19,12 @@ type Client struct {
 }
 
 func NewClient(ctx context.Context, uri string, database string) (*Client, error) {
+	if uri == "" {
+		uri = getMongoURI()
+	}
+	if database == "" {
+		database = getMongoDatabase()
+	}
 	clientOptions := options.Client().ApplyURI(uri)
 	
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
