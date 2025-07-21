@@ -1,72 +1,181 @@
-package zensegur
+package zensframework
 
 import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
-type AuditLog struct {
-	ID        string                 `bson:"_id,omitempty" json:"id"`
-	Tenant    string                 `bson:"tenant" json:"tenant"`
-	Action    string                 `bson:"action" json:"action"`
-	Table     string                 `bson:"table" json:"table"`
-	RecordID  string                 `bson:"record_id" json:"record_id"`
-	UserID    string                 `bson:"user_id" json:"user_id"`
-	Changes   map[string]interface{} `bson:"changes" json:"changes"`
-	Timestamp time.Time              `bson:"timestamp" json:"timestamp"`
+// AuditAction represents the type of action performed
+type AuditAction string
+
+const (
+	AuditActionInsert     AuditAction = "INSERT"
+	AuditActionUpdate     AuditAction = "UPDATE"
+	AuditActionDelete     AuditAction = "DELETE"
+	AuditActionSoftDelete AuditAction = "SOFT_DELETE"
+)
+
+// AuditEntry represents an audit log entry
+type AuditEntry struct {
+	ID            uuid.UUID              `bson:"_id"`
+	CollectionName string                `bson:"collectionName"`
+	Action        AuditAction           `bson:"action"`
+	DocumentID    interface{}           `bson:"documentId"`
+	TenantID      uuid.UUID             `bson:"tenantId"`
+	Before        interface{}           `bson:"before,omitempty"`
+	After         interface{}           `bson:"after,omitempty"`
+	Changes       map[string]interface{} `bson:"changes,omitempty"`
+	Author        string                `bson:"author"`
+	AuthorID      string                `bson:"authorId"`
+	Timestamp     time.Time             `bson:"timestamp"`
+	CorrelationID string                `bson:"correlationId"`
 }
 
-func (r *MongoRepository[T]) WithAudit(enabled bool) *MongoRepository[T] {
-	clone := *r
-	clone.auditLog = enabled
-	return &clone
+// AuditLogger handles audit logging
+type AuditLogger struct {
+	db         *mongo.Database
+	collection *mongo.Collection
+	enabled    bool
 }
 
-func (r *MongoRepository[T]) logAuditLegacy(ctx context.Context, action string, id interface{}, oldData, newData interface{}) {
-	if r.userID == "" {
-		return
+// NewAuditLogger creates a new audit logger
+func NewAuditLogger(db *mongo.Database, enabled bool) *AuditLogger {
+	return &AuditLogger{
+		db:         db,
+		collection: db.Collection("audit_logs"),
+		enabled:    enabled,
 	}
-
-	audit := AuditLog{
-		Tenant:    extractTenant(r.collection.Name()),
-		Action:    action,
-		Table:     r.collection.Name(),
-		RecordID:  toString(id),
-		UserID:    r.userID,
-		Changes:   extractChanges(oldData, newData),
-		Timestamp: time.Now(),
-	}
-
-	_, _ = r.database.Collection("audit_logs").InsertOne(ctx, audit)
 }
 
-func toString(v interface{}) string {
-	if v == nil {
-		return ""
+// LogInsert logs an insert operation
+func (a *AuditLogger) LogInsert(ctx context.Context, collectionName string, documentID interface{}, document interface{}) error {
+	if !a.enabled {
+		return nil
 	}
-	return fmt.Sprintf("%v", v)
+
+	entry := a.createAuditEntry(ctx, collectionName, documentID, AuditActionInsert)
+	entry.After = document
+
+	_, err := a.collection.InsertOne(ctx, entry)
+	return err
 }
 
-func extractChanges(oldData, newData interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
-	if oldData != nil {
-		result["old"] = oldData
+// LogUpdate logs an update operation
+func (a *AuditLogger) LogUpdate(ctx context.Context, collectionName string, documentID interface{}, before interface{}, after interface{}) error {
+	if !a.enabled {
+		return nil
 	}
-	if newData != nil {
-		result["new"] = newData
-	}
-	return result
-}
 
-func extractTenant(collection string) string {
-	if len(collection) > 0 {
-		parts := []rune(collection)
-		for i, char := range parts {
-			if char == '_' {
-				return string(parts[:i])
+	entry := a.createAuditEntry(ctx, collectionName, documentID, AuditActionUpdate)
+	entry.Before = before
+	entry.After = after
+	
+	// Calculate changes
+	beforeMap, ok1 := before.(map[string]interface{})
+	afterMap, ok2 := after.(map[string]interface{})
+	
+	if ok1 && ok2 {
+		changes := make(map[string]interface{})
+		for k, v := range afterMap {
+			if beforeVal, exists := beforeMap[k]; exists {
+				if fmt.Sprintf("%v", beforeVal) != fmt.Sprintf("%v", v) {
+					changes[k] = map[string]interface{}{
+						"before": beforeVal,
+						"after":  v,
+					}
+				}
+			} else {
+				changes[k] = map[string]interface{}{
+					"before": nil,
+					"after":  v,
+				}
 			}
 		}
+		entry.Changes = changes
 	}
-	return ""
+
+	_, err := a.collection.InsertOne(ctx, entry)
+	return err
+}
+
+// LogDelete logs a delete operation
+func (a *AuditLogger) LogDelete(ctx context.Context, collectionName string, documentID interface{}, document interface{}, isSoftDelete bool) error {
+	if !a.enabled {
+		return nil
+	}
+
+	action := AuditActionDelete
+	if isSoftDelete {
+		action = AuditActionSoftDelete
+	}
+
+	entry := a.createAuditEntry(ctx, collectionName, documentID, action)
+	entry.Before = document
+
+	_, err := a.collection.InsertOne(ctx, entry)
+	return err
+}
+
+// createAuditEntry creates a base audit entry with common fields
+func (a *AuditLogger) createAuditEntry(ctx context.Context, collectionName string, documentID interface{}, action AuditAction) *AuditEntry {
+	entry := &AuditEntry{
+		ID:            uuid.New(),
+		CollectionName: collectionName,
+		Action:        action,
+		DocumentID:    documentID,
+		Timestamp:     time.Now(),
+		CorrelationID: GetContextHeader(ctx, XCORRELATIONID),
+		Author:        GetContextHeader(ctx, XAUTHOR),
+		AuthorID:      GetContextHeader(ctx, XAUTHORID),
+	}
+
+	// Try to get tenant ID
+	if tenantId := GetContextHeader(ctx, XTENANTID, TTENANTID); tenantId != "" {
+		if tid, err := uuid.Parse(tenantId); err == nil {
+			entry.TenantID = tid
+		}
+	}
+
+	return entry
+}
+
+// CreateAuditIndexes creates indexes for the audit collection
+func (a *AuditLogger) CreateAuditIndexes(ctx context.Context) error {
+	// Create indexes for efficient querying
+	indexes := []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: "collectionName", Value: 1},
+				{Key: "documentId", Value: 1},
+			},
+		},
+		{
+			Keys: bson.D{
+				{Key: "tenantId", Value: 1},
+			},
+		},
+		{
+			Keys: bson.D{
+				{Key: "timestamp", Value: -1},
+			},
+		},
+		{
+			Keys: bson.D{
+				{Key: "action", Value: 1},
+			},
+		},
+		{
+			Keys: bson.D{
+				{Key: "authorId", Value: 1},
+			},
+		},
+	}
+
+	_, err := a.collection.Indexes().CreateMany(ctx, indexes)
+	return err
 }

@@ -1,101 +1,50 @@
-package zensegur
+package zensframework
 
 import (
-	"sync"
+	"context"
+	"encoding/json"
+	"log"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
-type Cache struct {
-	items map[string]cacheItem
-	mu    sync.RWMutex
+type RedisCache struct {
+	client *redis.Client
 }
 
-type cacheItem struct {
-	value      interface{}
-	expiration int64
-}
-
-func NewCache(defaultExpiration time.Duration) *Cache {
-	cache := &Cache{
-		items: make(map[string]cacheItem),
-	}
-	
-	go cache.startGC(defaultExpiration)
-	
-	return cache
-}
-
-func (c *Cache) Set(key string, value interface{}) {
-	c.SetWithExpiration(key, value, 5*time.Minute)
-}
-
-func (c *Cache) SetWithExpiration(key string, value interface{}, duration time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	c.items[key] = cacheItem{
-		value:      value,
-		expiration: time.Now().Add(duration).UnixNano(),
+func NewCache(client *redis.Client) ICache {
+	return &RedisCache{
+		client: client,
 	}
 }
 
-func (c *Cache) Get(key string) interface{} {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	
-	item, found := c.items[key]
-	if !found {
+func (rc *RedisCache) Get(ctx context.Context, key string, pointer interface{}) error {
+
+	result := rc.client.Ping(ctx)
+	log.Println(result.Result())
+
+	re, err := rc.client.Get(ctx, key).Result()
+
+	if err == redis.Nil {
 		return nil
 	}
-	
-	if time.Now().UnixNano() > item.expiration {
-		return nil
+
+	if err != nil {
+		return err
 	}
-	
-	return item.value
+
+	return json.Unmarshal([]byte(re), pointer)
 }
 
-func (c *Cache) Delete(key string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	if key == "*" {
-		c.items = make(map[string]cacheItem)
-		return
-	}
-	
-	if len(key) > 0 && key[len(key)-1] == '*' {
-		prefix := key[:len(key)-1]
-		for k := range c.items {
-			if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
-				delete(c.items, k)
-			}
-		}
-		return
-	}
-	
-	delete(c.items, key)
-}
+func (rc *RedisCache) Set(ctx context.Context, key string, val interface{}, ttl time.Duration) error {
 
-func (c *Cache) startGC(interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	
-	for {
-		<-ticker.C
-		c.deleteExpired()
+	b, err := json.Marshal(val)
+	if err != nil {
+		return err
 	}
-}
 
-func (c *Cache) deleteExpired() {
-	now := time.Now().UnixNano()
-	
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	for k, v := range c.items {
-		if now > v.expiration {
-			delete(c.items, k)
-		}
-	}
+	result := rc.client.Ping(ctx)
+	log.Println(result.Result())
+	return rc.client.Set(ctx, key, b, ttl).Err()
 }

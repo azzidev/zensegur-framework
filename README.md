@@ -1,350 +1,300 @@
 # ZenSegur Framework
 
-Framework MongoDB para Go com suporte a multi-tenant, cache, auditoria e validação.
+Core framework for ZenSegur applications with MongoDB integration, Google Pub/Sub messaging, and audit logging.
 
-## Instalação
+## Features
+
+- MongoDB Repository Pattern
+- Google Pub/Sub Integration
+- MongoDB Audit Logging
+- Telemetry and Monitoring
+- Redis Cache Integration
+- JWT Authentication Support
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Core Components](#core-components)
+  - [GoFramework](#goframework)
+  - [MongoDB Repository](#mongodb-repository)
+  - [Google Pub/Sub](#google-pub-sub)
+  - [Audit Logging](#audit-logging)
+  - [Redis Cache](#redis-cache)
+  - [Telemetry](#telemetry)
+- [API Reference](#api-reference)
+
+## Installation
 
 ```bash
 go get github.com/azzidev/zensegur-framework
 ```
 
-## Uso Básico
+## Core Components
+
+### GoFramework
+
+The main framework container that orchestrates all components.
 
 ```go
-package main
+// Initialize the framework
+framework := zensframework.NewGoFramework()
 
-import (
-    "context"
-    "log"
-    "time"
-    
-    "github.com/azzidev/zensegur-framework"
-)
+// Register MongoDB
+framework.RegisterDbMongo("mongodb://localhost:27017", "user", "password", "database", false)
 
-// Definir modelo
+// Register PubSub
+framework.RegisterPubSub("your-google-cloud-project-id")
+
+// Register Redis
+framework.RegisterRedis("localhost:6379", "", "0")
+
+// Register repositories
+framework.RegisterRepository(NewUserRepository)
+
+// Register application services
+framework.RegisterApplication(NewUserService)
+
+// Register controllers
+framework.RegisterController(NewUserController)
+
+// Start the server
+framework.Start()
+```
+
+### MongoDB Repository
+
+Generic repository pattern for MongoDB with built-in audit logging.
+
+```go
+// Define your entity
 type User struct {
-    ID       string `bson:"_id,omitempty" json:"id,omitempty"`
-    Username string `bson:"username" json:"username"`
-    Email    string `bson:"email" json:"email"`
-    zensegur.BaseDocument // Adiciona created_at, updated_at, deleted_at, active, etc.
+    ID       uuid.UUID `bson:"_id"`
+    Name     string    `bson:"name"`
+    Email    string    `bson:"email"`
+    Active   bool      `bson:"active"`
 }
 
-func main() {
-    // Criar cliente
-    ctx := context.Background()
-    client, err := zensegur.NewClient(ctx, "mongodb://localhost:27017", "zensegur")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer client.Close()
-    
-    // Criar cache
-    cache := zensegur.NewCache(5 * time.Minute)
-    
-    // Configurar cliente com tenant e autor
-    clientWithContext := client.
-        WithTenant("empresa1").
-        WithAuthor("user123", "João Silva").
-        WithAudit(true).
-        WithCache(cache)
-    
-    // Criar repositório tipado
-    userRepo := clientWithContext.RepositoryTyped("users").(*zensegur.MongoRepository[User])
-    
-    // Criar usuário
-    user := User{
-        Username: "joao.silva",
-        Email:    "joao@example.com",
-    }
-    
-    // Inserir usuário (metadados são adicionados automaticamente)
-    err = userRepo.Insert(ctx, &user)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Buscar usuários com filtro
-    filter := map[string]interface{}{
-        "username": "joao.silva",
-    }
-    
-    // Buscar primeiro usuário
-    foundUser := userRepo.GetFirst(ctx, filter)
-    if foundUser != nil {
-        log.Printf("Usuário encontrado: %s", foundUser.Email)
-    }
-    
-    // Buscar todos os usuários
-    allUsers := userRepo.GetAll(ctx, map[string]interface{}{})
-    log.Printf("Total de usuários: %d", len(*allUsers))
-    
-    // Atualizar usuário
-    updateFields := map[string]interface{}{
-        "email": "joao.novo@example.com",
-    }
-    err = userRepo.Update(ctx, filter, updateFields)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Soft delete (mantém o registro mas marca como inativo)
-    err = userRepo.Delete(ctx, filter)
-    if err != nil {
-        log.Fatal(err)
-    }
+// Create repository
+repo := zensframework.NewMongoDbRepository[User](db, monitoring, viper)
+
+// Use repository methods
+user := &User{
+    ID:     uuid.New(),
+    Name:   "John Doe",
+    Email:  "john@example.com",
+    Active: true,
 }
-```
 
-## Recursos Principais
+// Insert
+err := repo.Insert(ctx, user)
 
-### Cliente
+// Get by ID
+filter := map[string]interface{}{"_id": id}
+user := repo.GetFirst(ctx, filter)
 
-```go
-// Criar cliente
-client, err := zensegur.NewClient(ctx, "mongodb://localhost:27017", "zensegur")
-
-// Configurar cliente
-client = client.WithTenant("empresa1")
-client = client.WithAuthor("user123", "João Silva")
-client = client.WithAudit(true)
-client = client.WithCache(cache)
-
-// Obter repositório
-repo := client.Repository("collection")
-```
-
-### Repositório
-
-```go
-// Busca simples
-user := repo.GetFirst(ctx, map[string]interface{}{"username": "admin"})
-users := repo.GetAll(ctx, map[string]interface{}{"active": true})
-
-// Paginação
-result := repo.GetAllSkipTake(ctx, filter, 0, 10)
-log.Printf("Total: %d, Itens: %d", result.TotalCount, len(result.Items))
-
-// CRUD
-id, err := repo.Insert(ctx, &user)
-err = repo.Update(ctx, filter, updateFields)
-err = repo.Delete(ctx, filter) // Soft delete
-err = repo.DeleteForce(ctx, filter) // Hard delete
-
-// Operações em lote
-err = repo.InsertAll(ctx, &users)
-err = repo.UpdateMany(ctx, filter, fields)
-err = repo.DeleteMany(ctx, filter)
-
-// Arrays
-err = repo.PushMany(ctx, filter, map[string]interface{}{"tags": "novo"})
-err = repo.PullMany(ctx, filter, map[string]interface{}{"tags": "remover"})
-```
-
-### Query Builder
-
-```go
-// Iniciar query
-query := repo.Where("username", "==", "admin")
-
-// Adicionar filtros
-query = query.Where("active", "==", true)
-query = query.Where("age", ">", 18)
-
-// Ordenação e paginação
-query = query.OrderBy("created_at", true) // true = descendente
-query = query.Skip(10).Limit(5)
-
-// Executar consulta
-users, err := query.Execute()
-
-// Buscar primeiro resultado
-var user User
-err = query.First(&user)
-```
-
-### Cache
-
-```go
-// Criar cache
-cache := zensegur.NewCache(5 * time.Minute)
-
-// Usar cache
-repo := repo.WithCache(cache)
-
-// Operações manuais
-cache.Set("key", value)
-cache.SetWithExpiration("key", value, 10*time.Minute)
-value := cache.Get("key")
-cache.Delete("key")
-cache.Delete("prefix*") // Wildcard
-```
-
-### Auditoria
-
-```go
-// Habilitar auditoria
-repo := repo.WithAudit(true)
-
-// A auditoria é automática para Insert, Update e Delete
-// Os logs são armazenados na coleção "audit_logs"
-```
-
-### Validação
-
-```go
-// Criar validador
-validator := zensegur.NewValidator()
-
-// Adicionar regras
-validator.AddRule("phone", func(v interface{}) error {
-    // Validação personalizada
-    return nil
+// Update
+err := repo.Update(ctx, filter, map[string]interface{}{
+    "name": "Jane Doe",
 })
 
-// Usar validador
-repo := repo.WithValidation(validator)
-
-// Validar manualmente
-type Product struct {
-    Name  string `validate:"required"`
-    Email string `validate:"email"`
-    Phone string `validate:"phone"`
-}
-
-product := Product{...}
-err := validator.Validate(product)
+// Delete (soft delete)
+err := repo.Delete(ctx, filter)
 ```
 
-### Multi-Tenant
+### Google Pub/Sub
+
+Messaging system using Google Pub/Sub.
 
 ```go
-// Configurar tenant
-client := client.WithTenant("empresa1")
-
-// O tenant é aplicado automaticamente:
-// 1. Prefixo na collection: "empresa1_users"
-// 2. Filtro automático em consultas
-```
-
-### Gin Middleware
-
-```go
-import (
-    "github.com/gin-gonic/gin"
-    "github.com/azzidev/zensegur-framework"
+// Create a producer
+producer, err := zensframework.NewPubSubProducer[YourMessageType](
+    ctx, 
+    "your-google-cloud-project-id", 
+    "your-topic-name",
 )
+if err != nil {
+    log.Fatalf("Failed to create producer: %v", err)
+}
+defer producer.Close()
 
-func jwtValidator(token string) (zensegur.Claims, error) {
-    return zensegur.ValidateJWT(token)
+// Publish a message
+msg := &YourMessageType{...}
+err = producer.Publish(ctx, msg)
+
+// Create a consumer
+messageHandler := func(ctx *zensframework.PubSubContext) {
+    var msg YourMessageType
+    err := json.Unmarshal(ctx.Msg.Data, &msg)
+    if err != nil {
+        ctx.Faulted = true
+        return
+    }
+    
+    // Process the message
+    // ...
 }
 
-func setupRouter() *gin.Engine {
-    r := gin.Default()
-    
-    // Middlewares de autenticação
-    r.Use(zensegur.GinAuthMiddleware(jwtValidator))
-    r.Use(zensegur.GinCookieAuthMiddleware(jwtValidator, "auth-token"))
-    
-    // Middlewares de autorização
-    r.GET("/admin", zensegur.GinRequireRole("admin"), handler)
-    r.GET("/users", zensegur.GinRequirePermission("users.read"), handler)
-    
-    // Middlewares de segurança
-    r.Use(zensegur.GinCORSMiddleware())
-    r.Use(zensegur.GinSecurityMiddleware())
-    r.Use(zensegur.GinRateLimitMiddleware(100, 60)) // 100 req/min
-    r.Use(zensegur.GinTenantMiddleware())
-    
-    // Helpers
-    r.GET("/profile", func(c *gin.Context) {
-        userID := zensegur.GinGetUserID(c)
-        username := zensegur.GinGetUsername(c)
-        tenant := zensegur.GinGetTenant(c)
-        // ...
-    })
-    
-    return r
-}
-```
-
-### JWT
-
-```go
-// Gerar token
-token, err := zensegur.GenerateJWT(
-    "user123",
-    "joao.silva",
-    []string{"admin", "user"},
-    []string{"users.read", "users.write"},
+consumer, err := zensframework.NewPubSubConsumer(
+    ctx,
+    "your-google-cloud-project-id",
+    "your-subscription-id",
+    messageHandler,
 )
-
-// Validar token
-claims, err := zensegur.ValidateJWT(token)
 if err != nil {
-    // Token inválido
+    log.Fatalf("Failed to create consumer: %v", err)
 }
+defer consumer.Close()
 
-// Acessar claims
-userID := claims.GetUserID()
-username := claims.GetUsername()
-roles := claims.GetRoles()
-permissions := claims.GetPermissions()
+// Start consuming messages
+go consumer.HandleFn()
 ```
 
-### Resolver Tenant
+### Audit Logging
+
+Automatic audit logging for MongoDB operations.
 
 ```go
-// Resolver tenant a partir do username (formato: user@tenant)
-client, username, err := client.ResolveUserTenant("joao@empresa1")
-if err != nil {
-    // Tenant não encontrado
-}
+// Enable audit logging in your configuration
+v := viper.New()
+v.SetDefault("audit.enabled", true)
 
-// O client já está configurado com o tenant correto
-repo := client.Repository("users")
+// When creating your repository, audit logging is automatically enabled
+repo := zensframework.NewMongoDbRepository[YourEntity](db, monitoring, v)
+
+// All insert, update, and delete operations will be logged automatically
 ```
 
-## Estruturas de Dados
+### Redis Cache
 
-### BaseDocument
+Redis cache integration for high-performance caching.
 
 ```go
-type BaseDocument struct {
-    CreatedAt  time.Time  `bson:"created_at" json:"created_at"`
-    UpdatedAt  time.Time  `bson:"updated_at" json:"updated_at"`
-    DeletedAt  *time.Time `bson:"deleted_at,omitempty" json:"deleted_at,omitempty"`
-    Active     bool       `bson:"active" json:"active"`
-    CreatedBy  string     `bson:"created_by,omitempty" json:"created_by,omitempty"`
-    UpdatedBy  string     `bson:"updated_by,omitempty" json:"updated_by,omitempty"`
+// Register Redis in the framework
+framework.RegisterRedis("localhost:6379", "", "0")
+
+// Create a cache implementation
+type RedisCache struct {
+    client *redis.Client
 }
+
+func NewRedisCache(client *redis.Client) zensframework.ICache {
+    return &RedisCache{client: client}
+}
+
+// Implement cache methods
+func (c *RedisCache) Get(key string, value interface{}) error {
+    // Implementation
+}
+
+func (c *RedisCache) Set(key string, value interface{}, expiration time.Duration) error {
+    // Implementation
+}
+
+// Register the cache
+framework.RegisterCache(NewRedisCache)
 ```
 
-### Interfaces
+### Telemetry
+
+Built-in telemetry and monitoring.
 
 ```go
-// Implementar estas interfaces para suporte a metadados
-type Timestampable interface {
-    SetCreatedAt(time.Time)
-    SetUpdatedAt(time.Time)
-}
-
-type Activable interface {
-    SetActive(bool)
-}
-
-type Authorable interface {
-    SetCreatedBy(string)
-    SetUpdatedBy(string)
-}
-
-// BaseDocument já implementa todas estas interfaces
+// Monitoring is automatically provided by the framework
+framework.Invoke(func(monitoring *zensframework.Monitoring) {
+    // Use monitoring
+    correlation := uuid.New()
+    mt := monitoring.Start(correlation, "service-name", zensframework.TracingTypeRepository)
+    mt.AddContent(data)
+    mt.AddStack(100, "operation-name")
+    mt.End()
+})
 ```
 
-## Características Importantes
+## API Reference
 
-- **Collection por Tenant**: `empresa1_users`, `empresa2_users`
-- **Apenas Soft Delete**: Delete físico disponível via `DeleteForce`
-- **Metadados Automáticos**: created_at/updated_at em todas operações
-- **Cache Inteligente**: Invalidação automática em operações de escrita
-- **Thread Safe**: Todas operações são thread-safe
-- **Zero Reflection**: Uso mínimo de reflection apenas para metadados
+### GoFramework
+
+| Method | Description |
+|--------|-------------|
+| `NewGoFramework(opts ...GoFrameworkOptions)` | Creates a new framework instance |
+| `RegisterDbMongo(host, user, pass, database string, normalize bool)` | Registers MongoDB connection |
+| `RegisterPubSub(projectID string, opts ...option.ClientOption)` | Registers Google Pub/Sub client |
+| `RegisterRedis(address, password, db string)` | Registers Redis connection |
+| `RegisterRepository(constructor interface{})` | Registers a repository |
+| `RegisterApplication(application interface{})` | Registers an application service |
+| `RegisterController(controller interface{})` | Registers a controller |
+| `RegisterCache(constructor interface{})` | Registers a cache implementation |
+| `RegisterPubSubProducer(producer interface{})` | Registers a PubSub producer |
+| `RegisterPubSubConsumer(consumer interface{})` | Registers a PubSub consumer |
+| `Start()` | Starts the HTTP server |
+| `Invoke(function interface{})` | Invokes a function with dependency injection |
+| `GetConfig(key string)` | Gets a configuration value |
+
+### MongoDB Repository
+
+| Method | Description |
+|--------|-------------|
+| `NewMongoDbRepository[T](db, monitoring, viper)` | Creates a new repository for type T |
+| `ChangeCollection(collectionName string)` | Changes the collection name |
+| `GetAll(ctx, filter, ...options)` | Gets all documents matching the filter |
+| `GetAllSkipTake(ctx, filter, skip, take, ...options)` | Gets paginated documents |
+| `GetFirst(ctx, filter)` | Gets the first document matching the filter |
+| `Insert(ctx, entity)` | Inserts a new document |
+| `InsertAll(ctx, entities)` | Inserts multiple documents |
+| `Replace(ctx, filter, entity)` | Replaces a document |
+| `Update(ctx, filter, fields)` | Updates document fields |
+| `Delete(ctx, filter)` | Soft deletes a document |
+| `DeleteMany(ctx, filter)` | Soft deletes multiple documents |
+| `DeleteForce(ctx, filter)` | Hard deletes a document |
+| `DeleteManyForce(ctx, filter)` | Hard deletes multiple documents |
+| `Aggregate(ctx, pipeline)` | Performs an aggregation |
+| `Count(ctx, filter, ...options)` | Counts documents matching the filter |
+| `SetExpiredAfterInsert(ctx, seconds)` | Sets TTL index for documents |
+
+### Google Pub/Sub
+
+| Method | Description |
+|--------|-------------|
+| `NewPubSubProducer[T](ctx, projectID, topicName, ...options)` | Creates a new producer |
+| `Publish(ctx, msgs)` | Publishes messages |
+| `PublishWithAttributes(ctx, attributes, msgs)` | Publishes messages with attributes |
+| `Close()` | Closes the producer |
+| `NewPubSubConsumer(ctx, projectID, subscriptionID, handlerFunc, ...options)` | Creates a new consumer |
+| `HandleFn()` | Starts consuming messages |
+| `Close()` | Closes the consumer |
+
+### Audit Logger
+
+| Method | Description |
+|--------|-------------|
+| `NewAuditLogger(db, enabled)` | Creates a new audit logger |
+| `LogInsert(ctx, collectionName, documentID, document)` | Logs an insert operation |
+| `LogUpdate(ctx, collectionName, documentID, before, after)` | Logs an update operation |
+| `LogDelete(ctx, collectionName, documentID, document, isSoftDelete)` | Logs a delete operation |
+| `CreateAuditIndexes(ctx)` | Creates indexes for the audit collection |
+
+### Monitoring
+
+| Method | Description |
+|--------|-------------|
+| `NewMonitoring(v)` | Creates a new monitoring instance |
+| `Start(correlation, sourceName, tracingType)` | Starts a monitoring trace |
+| `AddContent(content)` | Adds content to the trace |
+| `AddStack(skip, message)` | Adds stack information |
+| `End()` | Ends the trace |
+
+### Context Helpers
+
+| Method | Description |
+|--------|-------------|
+| `GetContextHeader(ctx, keys...)` | Gets a header from the context |
+| `ToContext(ctx)` | Converts to a standard context |
+| `GetTenantByToken(ctx)` | Extracts tenant ID from JWT token |
+| `helperContextHeaders(ctx, addfilter)` | Helper for context headers |
+
+### BSON Helpers
+
+| Method | Description |
+|--------|-------------|
+| `MarshalWithRegistry(val)` | Marshals with custom registry |
+| `UnmarshalWithRegistry(data, val)` | Unmarshals with custom registry |
