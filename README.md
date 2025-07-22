@@ -9,7 +9,9 @@ Core framework for ZenSegur applications with MongoDB integration, Google Pub/Su
 - MongoDB Audit Logging
 - Telemetry and Monitoring
 - Redis Cache Integration
-- JWT Authentication Support
+- JWT Authentication Utilities
+- Role-based Access Control (RBAC)
+- Permission-based Security
 
 ## Table of Contents
 
@@ -18,6 +20,7 @@ Core framework for ZenSegur applications with MongoDB integration, Google Pub/Su
   - [GoFramework](#goframework)
   - [MongoDB Repository](#mongodb-repository)
   - [Google Pub/Sub](#google-pub-sub)
+  - [Authentication & Authorization](#authentication--authorization)
   - [Audit Logging](#audit-logging)
   - [Redis Cache](#redis-cache)
   - [Telemetry](#telemetry)
@@ -38,6 +41,9 @@ The main framework container that orchestrates all components.
 ```go
 // Initialize the framework
 framework := zensframework.NewGoFramework()
+
+// Configure CORS (default is already secure)
+framework.ConfigureCORS([]string{"https://zensegur.com.br", "https://*.zensegur.com.br"}, true)
 
 // Register MongoDB
 framework.RegisterDbMongo("mongodb://localhost:27017", "user", "password", "database", false)
@@ -164,6 +170,92 @@ repo := zensframework.NewMongoDbRepository[YourEntity](db, monitoring, v)
 // All insert, update, and delete operations will be logged automatically
 ```
 
+### JWT Authentication
+
+Utilities for JWT token generation, validation, and cookie management.
+
+```go
+// Configure JWT helper
+config := &zensframework.JWTConfig{
+    Secret:         "your-secret-key",
+    AccessExpiry:   time.Hour,
+    RefreshExpiry:  time.Hour * 24 * 7,
+    CookieDomain:   "zensegur.com",
+    CookieSecure:   true,
+    CookieHTTPOnly: true,
+    CookieSameSite: http.SameSiteStrictMode,
+}
+
+// Register JWT helper
+framework.RegisterJWTHelper(config)
+
+// Create middleware config with public paths
+middlewareConfig := framework.CreateJWTMiddlewareConfig([]string{
+    "/login",
+    "/register",
+    "/reset-password",
+    "/health",
+})
+
+// In your controller setup
+framework.Invoke(func(jwt *zensframework.JWTHelper, router *gin.RouterGroup) {
+    // Apply authentication middleware with configuration
+    router.Use(jwt.AuthMiddlewareWithConfig(middlewareConfig, validateClaims))
+    
+    // Public routes (automatically skipped from auth)
+    router.POST("/login", handleLogin(jwt))
+    router.POST("/register", handleRegister(jwt))
+    
+    // Routes requiring specific permissions
+    admin := router.Group("/admin")
+    admin.Use(jwt.RequirePermission("admin:access"))
+    
+    // Routes requiring specific roles
+    superAdmin := router.Group("/super-admin")
+    superAdmin.Use(jwt.RequireRole("SUPER_ADMIN"))
+})
+
+// Custom claims validation function
+func validateClaims(c *gin.Context, claims jwt.Claims) error {
+    // You can implement your own validation logic here
+    // For example, check if user has required permissions
+    return nil
+}
+
+// Login handler example
+func handleLogin(jwt *zensframework.JWTHelper) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Authenticate user (implementation depends on your auth service)
+        // ...
+        
+        // Create custom claims with roles and permissions
+        claims := jwt.MapClaims{
+            "sub":         userId,
+            "name":        userName,
+            "email":       userEmail,
+            "tenant_id":   tenantId,
+            "roles":       []string{"ADMIN", "USER"},
+            "permissions": []string{"users:read", "users:write"},
+            "exp":         time.Now().Add(time.Hour).Unix(),
+        }
+        
+        // Generate token
+        token, err := jwt.GenerateToken(claims, time.Hour)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+        
+        // Return token
+        c.JSON(http.StatusOK, gin.H{"token": token})
+    }
+}
+
+// Password utilities
+hashedPassword, _ := zensframework.HashPassword("user-password")
+isValid := zensframework.CheckPassword("user-password", hashedPassword)
+```
+
 ### Redis Cache
 
 Redis cache integration for high-performance caching.
@@ -226,6 +318,9 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 | `RegisterCache(constructor interface{})` | Registers a cache implementation |
 | `RegisterPubSubProducer(producer interface{})` | Registers a PubSub producer |
 | `RegisterPubSubConsumer(consumer interface{})` | Registers a PubSub consumer |
+| `RegisterJWTHelper(config *JWTConfig)` | Registers the JWT helper |
+| `ConfigureCORS(allowOrigins []string, allowCredentials bool)` | Configures CORS settings |
+| `CreateJWTMiddlewareConfig(publicPaths []string)` | Creates a configuration for JWT middleware with public paths |
 | `Start()` | Starts the HTTP server |
 | `Invoke(function interface{})` | Invokes a function with dependency injection |
 | `GetConfig(key string)` | Gets a configuration value |
@@ -291,6 +386,23 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 | `ToContext(ctx)` | Converts to a standard context |
 | `GetTenantByToken(ctx)` | Extracts tenant ID from JWT token |
 | `helperContextHeaders(ctx, addfilter)` | Helper for context headers |
+
+### JWT Authentication
+
+| Method | Description |
+|--------|-------------|
+| `NewJWTHelper(config)` | Creates a new JWT helper |
+| `HashPassword(password)` | Creates a bcrypt hash from a password |
+| `CheckPassword(password, hash)` | Compares a password with a hash |
+| `GenerateToken(claims, expiry)` | Generates a JWT token with the given claims |
+| `ValidateToken(tokenString, claims)` | Validates a JWT token and returns the claims |
+| `SetAuthCookies(c, accessToken, refreshToken)` | Sets authentication cookies |
+| `ClearAuthCookies(c)` | Clears authentication cookies |
+| `GetTokenFromRequest(c)` | Extracts token from request |
+| `AuthMiddleware(validateFunc)` | Creates a middleware for JWT authentication |
+| `AuthMiddlewareWithConfig(config, validateFunc)` | Creates a middleware for JWT authentication with configuration |
+| `RequirePermission(permissions...)` | Creates a middleware that requires specific permissions |
+| `RequireRole(roles...)` | Creates a middleware that requires specific roles |
 
 ### BSON Helpers
 

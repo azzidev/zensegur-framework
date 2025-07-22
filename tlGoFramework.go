@@ -32,6 +32,7 @@ type GoFramework struct {
 	server         *gin.Engine
 	agentTelemetry GfAgentTelemetry
 	healthCheck    []func() (string, bool)
+	corsConfig     *cors.Config
 }
 
 type GoFrameworkOptions interface {
@@ -102,18 +103,21 @@ func NewGoFramework(opts ...GoFrameworkOptions) *GoFramework {
 
 	time.Local = location
 
+	// Configuração CORS padrão
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowOrigins = []string{"https://zensegur.com.br", "https://*.zensegur.com.br"}
+	corsConfig.AllowHeaders = []string{"Content-Type", "Authorization", "X-Requested-With"}
+	corsConfig.AllowCredentials = true
+
 	gf := &GoFramework{
 		ioc:           dig.New(),
 		configuration: initializeViper(),
 		server:        gin.Default(),
 		healthCheck:   make([]func() (string, bool), 0),
+		corsConfig:    &corsConfig,
 	}
 
-	cconfig := cors.DefaultConfig()
-	cconfig.AllowAllOrigins = true
-	cconfig.AllowHeaders = []string{"*", "Authorization"}
-
-	corsconfig := cors.New(cconfig)
+	corsconfig := cors.New(*gf.corsConfig)
 
 	for _, opt := range opts {
 		opt.run(gf)
@@ -344,5 +348,20 @@ func (gf *GoFramework) RegisterPubSubConsumer(consumer interface{}) {
 	err := gf.ioc.Invoke(consumer)
 	if err != nil {
 		log.Panic(err)
+	}
+}
+
+// ConfigureCORS configures CORS settings
+func (gf *GoFramework) ConfigureCORS(allowOrigins []string, allowCredentials bool) {
+	if len(allowOrigins) > 0 {
+		gf.corsConfig.AllowOrigins = allowOrigins
+	}
+	gf.corsConfig.AllowCredentials = allowCredentials
+}
+
+// CreateJWTMiddlewareConfig creates a configuration for JWT middleware
+func (gf *GoFramework) CreateJWTMiddlewareConfig(publicPaths []string) *JWTMiddlewareConfig {
+	return &JWTMiddlewareConfig{
+		PublicPaths: publicPaths,
 	}
 }

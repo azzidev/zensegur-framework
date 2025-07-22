@@ -1,0 +1,234 @@
+package zensframework
+
+import (
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// Auth errors
+var (
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrTokenExpired       = errors.New("token expired")
+	ErrInvalidToken       = errors.New("invalid token")
+	ErrMissingToken       = errors.New("missing token")
+	ErrUnauthorized       = errors.New("unauthorized")
+	ErrForbidden          = errors.New("forbidden")
+)
+
+// JWTConfig represents JWT configuration
+type JWTConfig struct {
+	Secret         string        `json:"secret"`
+	AccessExpiry   time.Duration `json:"accessExpiry"`
+	RefreshExpiry  time.Duration `json:"refreshExpiry"`
+	CookieDomain   string        `json:"cookieDomain"`
+	CookieSecure   bool          `json:"cookieSecure"`
+	CookieHTTPOnly bool          `json:"cookieHttpOnly"`
+	CookieSameSite http.SameSite `json:"cookieSameSite"`
+}
+
+// JWTHelper provides JWT utilities
+type JWTHelper struct {
+	config *JWTConfig
+}
+
+// NewJWTHelper creates a new JWT helper
+func NewJWTHelper(config *JWTConfig) *JWTHelper {
+	return &JWTHelper{
+		config: config,
+	}
+}
+
+// HashPassword creates a bcrypt hash from a password
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	return string(bytes), err
+}
+
+// CheckPassword compares a password with a hash
+func CheckPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+
+// GenerateToken generates a JWT token with the given claims
+func (h *JWTHelper) GenerateToken(claims jwt.Claims, expiry time.Duration) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(h.config.Secret))
+}
+
+// ValidateToken validates a JWT token and returns the claims
+func (h *JWTHelper) ValidateToken(tokenString string, claims jwt.Claims) error {
+	// Parse token
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		// Validate signing method
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(h.config.Secret), nil
+	})
+
+	// Handle parsing errors
+	if err != nil {
+		if ve, ok := err.(*jwt.ValidationError); ok {
+			if ve.Errors&jwt.ValidationErrorExpired != 0 {
+				return ErrTokenExpired
+			}
+		}
+		return ErrInvalidToken
+	}
+
+	if !token.Valid {
+		return ErrInvalidToken
+	}
+
+	return nil
+}
+
+// SetAuthCookies sets authentication cookies
+func (h *JWTHelper) SetAuthCookies(c *gin.Context, accessToken, refreshToken string) {
+	// Set access token cookie
+	c.SetCookie(
+		"access_token",
+		accessToken,
+		int(h.config.AccessExpiry.Seconds()),
+		"/",
+		h.config.CookieDomain,
+		h.config.CookieSecure,
+		h.config.CookieHTTPOnly,
+	)
+
+	// Set refresh token cookie
+	c.SetCookie(
+		"refresh_token",
+		refreshToken,
+		int(h.config.RefreshExpiry.Seconds()),
+		"/",
+		h.config.CookieDomain,
+		h.config.CookieSecure,
+		h.config.CookieHTTPOnly,
+	)
+
+	// Set SameSite policy
+	c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("SameSite=%s", h.config.CookieSameSite))
+}
+
+// ClearAuthCookies clears authentication cookies
+func (h *JWTHelper) ClearAuthCookies(c *gin.Context) {
+	c.SetCookie("access_token", "", -1, "/", h.config.CookieDomain, h.config.CookieSecure, h.config.CookieHTTPOnly)
+	c.SetCookie("refresh_token", "", -1, "/", h.config.CookieDomain, h.config.CookieSecure, h.config.CookieHTTPOnly)
+}
+
+// GetTokenFromRequest extracts token from request
+func GetTokenFromRequest(c *gin.Context) string {
+	// Get token from Authorization header
+	authHeader := c.GetHeader("Authorization")
+	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+
+	// Get token from cookie
+	token, _ := c.Cookie("access_token")
+	return token
+}
+
+// AuthMiddleware creates a middleware for JWT authentication
+func (h *JWTHelper) AuthMiddleware(validateFunc func(*gin.Context, jwt.Claims) error) gin.HandlerFunc {
+	// Use the new implementation with nil config (no public paths)
+	return h.AuthMiddlewareWithConfig(nil, validateFunc)
+}
+
+// RequirePermission creates a middleware that requires specific permissions
+func (h *JWTHelper) RequirePermission(permissions ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get permissions from context
+		userPerms, exists := c.Get("permissions")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": ErrUnauthorized.Error()})
+			return
+		}
+
+		userPermissions, ok := userPerms.([]string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "invalid permissions format"})
+			return
+		}
+
+		// Check if user has any of the required permissions
+		hasPermission := false
+		for _, required := range permissions {
+			for _, userPerm := range userPermissions {
+				if required == userPerm {
+					hasPermission = true
+					break
+				}
+			}
+			if hasPermission {
+				break
+			}
+		}
+
+		if !hasPermission {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": ErrForbidden.Error()})
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireRole creates a middleware that requires specific roles
+func (h *JWTHelper) RequireRole(roles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get roles from context
+		userRoles, exists := c.Get("roles")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": ErrUnauthorized.Error()})
+			return
+		}
+
+		userRolesList, ok := userRoles.([]string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "invalid roles format"})
+			return
+		}
+
+		// Check if user has any of the required roles
+		hasRole := false
+		for _, required := range roles {
+			for _, userRole := range userRolesList {
+				if required == userRole {
+					hasRole = true
+					break
+				}
+			}
+			if hasRole {
+				break
+			}
+		}
+
+		if !hasRole {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": ErrForbidden.Error()})
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RegisterJWTHelper registers the JWT helper with the framework
+func (gf *GoFramework) RegisterJWTHelper(config *JWTConfig) {
+	err := gf.ioc.Provide(func() *JWTHelper {
+		return NewJWTHelper(config)
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+}
