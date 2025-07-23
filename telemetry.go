@@ -28,21 +28,21 @@ type agentTelemetry struct {
 	serviceName string
 }
 
-type GfSpan struct {
+type ZSfSpan struct {
 	span trace.Span
 }
 
-type GfAgentTelemetry interface {
+type ZSfAgentTelemetry interface {
 	gin() gin.HandlerFunc
 	mongoMonitor() *event.CommandMonitor
-	StartTransaction(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, *GfSpan)
+	StartTransaction(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, *ZSfSpan)
 }
 
 func NewTelemetry(projectName string, endpoint string, apiKey string) *GoTelemetry {
 	return &GoTelemetry{Endpoint: endpoint, ApiKey: apiKey, ProjectName: projectName}
 }
 
-func (gt *GoTelemetry) run(gf *GoFramework) {
+func (gt *GoTelemetry) run(zsf *GoFramework) {
 
 	traceConnOpts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(gt.Endpoint),
@@ -74,7 +74,7 @@ func (gt *GoTelemetry) run(gf *GoFramework) {
 			log.Printf("Could not set resources: ", err)
 		}
 
-		gf.agentTelemetry = &agentTelemetry{
+		zsf.agentTelemetry = &agentTelemetry{
 			tracer: otel.GetTracerProvider().Tracer(
 				gt.ProjectName,
 				trace.WithInstrumentationVersion(os.Getenv("APPVERSION")),
@@ -90,12 +90,12 @@ func (ag *agentTelemetry) mongoMonitor() *event.CommandMonitor {
 	return otelmongo.NewMonitor()
 }
 
-func (ag *agentTelemetry) StartTransaction(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, *GfSpan) {
+func (ag *agentTelemetry) StartTransaction(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, *ZSfSpan) {
 	ctx, t := ag.tracer.Start(ctx, spanName, opts...)
-	return ctx, &GfSpan{span: t}
+	return ctx, &ZSfSpan{span: t}
 }
 
-func (g *GfSpan) End() {
+func (g *ZSfSpan) End() {
 	if g.span != nil {
 		g.span.End()
 	}

@@ -126,17 +126,21 @@ func (h *JWTHelper) ClearAuthCookies(c *gin.Context) {
 	c.SetCookie("refresh_token", "", -1, "/", h.config.CookieDomain, h.config.CookieSecure, h.config.CookieHTTPOnly)
 }
 
-// GetTokenFromRequest extracts token from request
+// GetTokenFromRequest extracts token from request, prioritizing cookie over header
 func GetTokenFromRequest(c *gin.Context) string {
-	// Get token from Authorization header
+	// Get token from cookie first (prioritize HttpOnly cookie)
+	token, err := c.Cookie("access_token")
+	if err == nil && token != "" {
+		return token
+	}
+
+	// Fallback to Authorization header
 	authHeader := c.GetHeader("Authorization")
 	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 		return strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
-	// Get token from cookie
-	token, _ := c.Cookie("access_token")
-	return token
+	return ""
 }
 
 // AuthMiddleware creates a middleware for JWT authentication
@@ -145,19 +149,25 @@ func (h *JWTHelper) AuthMiddleware(validateFunc func(*gin.Context, jwt.Claims) e
 	return h.AuthMiddlewareWithConfig(nil, validateFunc)
 }
 
-// RequirePermission creates a middleware that requires specific permissions
+// RequirePermission creates a middleware that requires at least one of the specified permissions
 func (h *JWTHelper) RequirePermission(permissions ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get permissions from context
 		userPerms, exists := c.Get("permissions")
 		if !exists {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": ErrUnauthorized.Error()})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"allowed": false,
+				"message": ErrUnauthorized.Error(),
+			})
 			return
 		}
 
 		userPermissions, ok := userPerms.([]string)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "invalid permissions format"})
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"allowed": false,
+				"message": "invalid permissions format",
+			})
 			return
 		}
 
@@ -176,7 +186,10 @@ func (h *JWTHelper) RequirePermission(permissions ...string) gin.HandlerFunc {
 		}
 
 		if !hasPermission {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": ErrForbidden.Error()})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"allowed": false,
+				"message": "User does not have any of the required permissions",
+			})
 			return
 		}
 
@@ -184,19 +197,25 @@ func (h *JWTHelper) RequirePermission(permissions ...string) gin.HandlerFunc {
 	}
 }
 
-// RequireRole creates a middleware that requires specific roles
+// RequireRole creates a middleware that requires at least one of the specified roles
 func (h *JWTHelper) RequireRole(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get roles from context
 		userRoles, exists := c.Get("roles")
 		if !exists {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": ErrUnauthorized.Error()})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"allowed": false,
+				"message": ErrUnauthorized.Error(),
+			})
 			return
 		}
 
 		userRolesList, ok := userRoles.([]string)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "invalid roles format"})
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"allowed": false,
+				"message": "invalid roles format",
+			})
 			return
 		}
 
@@ -215,7 +234,10 @@ func (h *JWTHelper) RequireRole(roles ...string) gin.HandlerFunc {
 		}
 
 		if !hasRole {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": ErrForbidden.Error()})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"allowed": false,
+				"message": "User does not have any of the required roles",
+			})
 			return
 		}
 
@@ -224,10 +246,26 @@ func (h *JWTHelper) RequireRole(roles ...string) gin.HandlerFunc {
 }
 
 // RegisterJWTHelper registers the JWT helper with the framework
-func (gf *GoFramework) RegisterJWTHelper(config *JWTConfig) {
-	err := gf.ioc.Provide(func() *JWTHelper {
+func (zsf *GoFramework) RegisterJWTHelper(config *JWTConfig) {
+	err := zsf.ioc.Provide(func() *JWTHelper {
 		return NewJWTHelper(config)
 	})
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
+// RegisterGroupRepository registers a repository for groups
+func (zsf *GoFramework) RegisterGroupRepository(constructor interface{}) {
+	err := zsf.ioc.Provide(constructor)
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
+// RegisterUserGroupMappingRepository registers a repository for user-group mappings
+func (zsf *GoFramework) RegisterUserGroupMappingRepository(constructor interface{}) {
+	err := zsf.ioc.Provide(constructor)
 	if err != nil {
 		log.Panic(err)
 	}

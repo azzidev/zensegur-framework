@@ -9,9 +9,10 @@ Core framework for ZenSegur applications with MongoDB integration, Google Pub/Su
 - MongoDB Audit Logging
 - Telemetry and Monitoring
 - Redis Cache Integration
-- JWT Authentication Utilities
+- JWT Authentication Utilities with HttpOnly Cookies
 - Role-based Access Control (RBAC)
-- Permission-based Security
+- Group-based Permission System
+- Multi-tenant Group Management
 
 ## Table of Contents
 
@@ -21,6 +22,7 @@ Core framework for ZenSegur applications with MongoDB integration, Google Pub/Su
   - [MongoDB Repository](#mongodb-repository)
   - [Google Pub/Sub](#google-pub-sub)
   - [Authentication & Authorization](#authentication--authorization)
+  - [Group-based Permissions](#group-based-permissions)
   - [Audit Logging](#audit-logging)
   - [Redis Cache](#redis-cache)
   - [Telemetry](#telemetry)
@@ -172,7 +174,7 @@ repo := zensframework.NewMongoDbRepository[YourEntity](db, monitoring, v)
 
 ### JWT Authentication
 
-Utilities for JWT token generation, validation, and cookie management.
+Utilities for JWT token generation, validation, and HttpOnly cookie management.
 
 ```go
 // Configure JWT helper
@@ -193,7 +195,7 @@ framework.RegisterJWTHelper(config)
 middlewareConfig := framework.CreateJWTMiddlewareConfig([]string{
     "/login",
     "/register",
-    "/reset-password",
+    "/refresh",
     "/health",
 })
 
@@ -210,9 +212,17 @@ framework.Invoke(func(jwt *zensframework.JWTHelper, router *gin.RouterGroup) {
     admin := router.Group("/admin")
     admin.Use(jwt.RequirePermission("admin:access"))
     
-    // Routes requiring specific roles
+    // Routes requiring specific roles (any of the listed roles)
     superAdmin := router.Group("/super-admin")
-    superAdmin.Use(jwt.RequireRole("SUPER_ADMIN"))
+    superAdmin.Use(jwt.RequireRole("SUPER_ADMIN", "ADMIN"))
+    
+    // Routes requiring all specified roles
+    restrictedAdmin := router.Group("/restricted-admin")
+    restrictedAdmin.Use(jwt.RequireAllRoles("SUPER_ADMIN", "SECURITY_OFFICER"))
+    
+    // Routes requiring all specified permissions
+    secureOperations := router.Group("/secure-operations")
+    secureOperations.Use(jwt.RequireAllPermissions("users:write", "users:delete"))
 })
 
 // Custom claims validation function
@@ -222,7 +232,7 @@ func validateClaims(c *gin.Context, claims jwt.Claims) error {
     return nil
 }
 
-// Login handler example
+// Login handler example with HttpOnly cookies
 func handleLogin(jwt *zensframework.JWTHelper) gin.HandlerFunc {
     return func(c *gin.Context) {
         // Authenticate user (implementation depends on your auth service)
@@ -239,15 +249,31 @@ func handleLogin(jwt *zensframework.JWTHelper) gin.HandlerFunc {
             "exp":         time.Now().Add(time.Hour).Unix(),
         }
         
-        // Generate token
-        token, err := jwt.GenerateToken(claims, time.Hour)
+        // Generate tokens
+        accessToken, err := jwt.GenerateToken(claims, time.Hour)
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
         
-        // Return token
-        c.JSON(http.StatusOK, gin.H{"token": token})
+        refreshClaims := jwt.MapClaims{
+            "sub":        userId,
+            "token_type": "refresh",
+            "exp":        time.Now().Add(time.Hour * 24 * 7).Unix(),
+        }
+        refreshToken, _ := jwt.GenerateToken(refreshClaims, time.Hour * 24 * 7)
+        
+        // Set HttpOnly cookies
+        jwt.SetAuthCookies(c, accessToken, refreshToken)
+        
+        // Return success response (without exposing tokens)
+        c.JSON(http.StatusOK, gin.H{
+            "success": true,
+            "user": gin.H{
+                "email": userEmail,
+                "name": userName,
+            },
+        })
     }
 }
 
@@ -410,3 +436,70 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 |--------|-------------|
 | `MarshalWithRegistry(val)` | Marshals with custom registry |
 | `UnmarshalWithRegistry(data, val)` | Unmarshals with custom registry |
+
+### Group-based Permissions
+
+The framework now supports a group-based permission system where permissions are fixed and defined by the system, but groups can be created with different combinations of permissions per tenant.
+
+```go
+// Register repositories for groups and mappings
+framework.RegisterGroupRepository(NewGroupRepository)
+framework.RegisterUserGroupMappingRepository(NewUserGroupMappingRepository)
+
+// Register group manager
+framework.RegisterGroupManager()
+
+// Register auth endpoints
+framework.RegisterAuthEndpoints()
+
+// Example group repository implementation
+type GroupRepository struct {
+    repo zensframework.IRepository[zensframework.Group]
+}
+
+func NewGroupRepository(db *mongo.Database, monitoring *zensframework.Monitoring, v *viper.Viper) *GroupRepository {
+    return &GroupRepository{
+        repo: zensframework.NewMongoDbRepository[zensframework.Group](db, monitoring, v),
+    }
+}
+
+// Example user-group mapping repository implementation
+type UserGroupMappingRepository struct {
+    repo zensframework.IRepository[zensframework.UserGroupMapping]
+}
+
+func NewUserGroupMappingRepository(db *mongo.Database, monitoring *zensframework.Monitoring, v *viper.Viper) *UserGroupMappingRepository {
+    repo := zensframework.NewMongoDbRepository[zensframework.UserGroupMapping](db, monitoring, v)
+    repo.ChangeCollection("user_group_mappings")
+    return &UserGroupMappingRepository{
+        repo: repo,
+    }
+}
+
+// Using the group manager to check permissions
+framework.Invoke(func(groupManager *zensframework.GroupManager) {
+    // Check if user has all required permissions
+    allowed, err := groupManager.CheckUserPermissions(ctx, userID, []string{"users:read", "users:write"})
+    
+    // Get all permissions for a user
+    permissions, err := groupManager.GetUserPermissions(ctx, userID)
+    
+    // Add user to a group
+    err := groupManager.AddUserToGroup(ctx, userID, groupID)
+    
+    // Remove user from a group
+    err := groupManager.RemoveUserFromGroup(ctx, userID, groupID)
+})
+
+// Authentication endpoints for permission checking
+// POST /api/auth/check-role - Check if user has all specified roles
+// POST /api/auth/check-permission - Check if user has all specified permissions
+// GET /api/auth/permissions - Get all permissions for the current user
+
+// Example request to check roles
+// POST /api/auth/check-role
+// {"roles": ["ADMIN", "MANAGER"]}
+
+// Example response
+// {"allowed": true, "message": "User has all required roles"}
+```

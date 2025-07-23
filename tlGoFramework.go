@@ -30,13 +30,13 @@ type GoFramework struct {
 	ioc            *dig.Container
 	configuration  *viper.Viper
 	server         *gin.Engine
-	agentTelemetry GfAgentTelemetry
+	agentTelemetry ZSfAgentTelemetry
 	healthCheck    []func() (string, bool)
 	corsConfig     *cors.Config
 }
 
 type GoFrameworkOptions interface {
-	run(gf *GoFramework)
+	run(zsf *GoFramework)
 }
 
 func AddTenant(monitoring *Monitoring, v *viper.Viper) gin.HandlerFunc {
@@ -109,7 +109,7 @@ func NewGoFramework(opts ...GoFrameworkOptions) *GoFramework {
 	corsConfig.AllowHeaders = []string{"Content-Type", "Authorization", "X-Requested-With"}
 	corsConfig.AllowCredentials = true
 
-	gf := &GoFramework{
+	zsf := &GoFramework{
 		ioc:           dig.New(),
 		configuration: initializeViper(),
 		server:        gin.Default(),
@@ -117,26 +117,26 @@ func NewGoFramework(opts ...GoFrameworkOptions) *GoFramework {
 		corsConfig:    &corsConfig,
 	}
 
-	corsconfig := cors.New(*gf.corsConfig)
+	corsconfig := cors.New(*zsf.corsConfig)
 
 	for _, opt := range opts {
-		opt.run(gf)
+		opt.run(zsf)
 	}
 
-	gf.ioc.Provide(initializeViper)
-	gf.ioc.Provide(NewMonitoring)
-	gf.ioc.Provide(newLog)
-	gf.ioc.Provide(func() GfAgentTelemetry { return gf.agentTelemetry })
+	zsf.ioc.Provide(initializeViper)
+	zsf.ioc.Provide(NewMonitoring)
+	zsf.ioc.Provide(newLog)
+	zsf.ioc.Provide(func() ZSfAgentTelemetry { return zsf.agentTelemetry })
 
-	gf.ioc.Invoke(func(monitoring *Monitoring, v *viper.Viper) {
-		gf.server.Use(corsconfig, AddTenant(monitoring, v))
+	zsf.ioc.Invoke(func(monitoring *Monitoring, v *viper.Viper) {
+		zsf.server.Use(corsconfig, AddTenant(monitoring, v))
 	})
 
-	gf.server.GET("/health", func(ctx *gin.Context) {
+	zsf.server.GET("/health", func(ctx *gin.Context) {
 
 		list := make(map[string]bool)
 		httpCode := http.StatusOK
-		for _, item := range gf.healthCheck {
+		for _, item := range zsf.healthCheck {
 			name, status := item()
 			list[name] = status
 			if !status {
@@ -146,15 +146,15 @@ func NewGoFramework(opts ...GoFrameworkOptions) *GoFramework {
 		ctx.JSON(httpCode, list)
 	})
 
-	if gf.agentTelemetry != nil {
-		gf.server.Use(gf.agentTelemetry.gin())
+	if zsf.agentTelemetry != nil {
+		zsf.server.Use(zsf.agentTelemetry.gin())
 	}
-	err = gf.ioc.Provide(func() *gin.RouterGroup { return gf.server.Group("/") })
+	err = zsf.ioc.Provide(func() *gin.RouterGroup { return zsf.server.Group("/") })
 	if err != nil {
 		log.Panic(err)
 	}
 
-	return gf
+	return zsf
 }
 
 // VIPER
@@ -169,50 +169,50 @@ func initializeViper() *viper.Viper {
 	return v
 }
 
-func (gf *GoFramework) GetConfig(key string) string {
-	return gf.configuration.GetString(key)
+func (zsf *GoFramework) GetConfig(key string) string {
+	return zsf.configuration.GetString(key)
 }
 
 // DIG
-func (gf *GoFramework) RegisterRepository(constructor interface{}) {
-	err := gf.ioc.Provide(constructor)
+func (zsf *GoFramework) RegisterRepository(constructor interface{}) {
+	err := zsf.ioc.Provide(constructor)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func (gf *GoFramework) RegisterApplication(application interface{}) {
-	err := gf.ioc.Provide(application)
+func (zsf *GoFramework) RegisterApplication(application interface{}) {
+	err := zsf.ioc.Provide(application)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
 // GIN
-func (gf *GoFramework) RegisterController(controller interface{}) {
-	err := gf.ioc.Invoke(controller)
+func (zsf *GoFramework) RegisterController(controller interface{}) {
+	err := zsf.ioc.Invoke(controller)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func (gf *GoFramework) Start() error {
+func (zsf *GoFramework) Start() error {
 	port := os.Getenv("port")
 	if port == "" {
 		port = "8081"
 	}
-	return gf.server.Run(":" + port)
+	return zsf.server.Run(":" + port)
 }
 
-func (gf *GoFramework) Invoke(function interface{}) {
-	err := gf.ioc.Invoke(function)
+func (zsf *GoFramework) Invoke(function interface{}) {
+	err := zsf.ioc.Invoke(function)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
 // mongo
-func (gf *GoFramework) RegisterDbMongo(host string, user string, pass string, database string, normalize bool) {
+func (zsf *GoFramework) RegisterDbMongo(host string, user string, pass string, database string, normalize bool) {
 
 	opts := options.Client().ApplyURI(host)
 
@@ -220,11 +220,11 @@ func (gf *GoFramework) RegisterDbMongo(host string, user string, pass string, da
 		opts.SetAuth(options.Credential{Username: user, Password: pass})
 	}
 
-	if gf.agentTelemetry != nil {
-		opts = opts.SetMonitor(gf.agentTelemetry.mongoMonitor())
+	if zsf.agentTelemetry != nil {
+		opts = opts.SetMonitor(zsf.agentTelemetry.mongoMonitor())
 	}
 
-	err := gf.ioc.Provide(func() *mongo.Database {
+	err := zsf.ioc.Provide(func() *mongo.Database {
 		cli, err := newMongoClient(opts, normalize)
 		if err != nil {
 			return nil
@@ -232,9 +232,9 @@ func (gf *GoFramework) RegisterDbMongo(host string, user string, pass string, da
 		return cli.Database(database)
 	})
 
-	gf.ioc.Provide(NewMongoTransaction)
+	zsf.ioc.Provide(NewMongoTransaction)
 
-	gf.healthCheck = append(gf.healthCheck, func() (string, bool) {
+	zsf.healthCheck = append(zsf.healthCheck, func() (string, bool) {
 		serviceName := "MDB"
 		cli, err := newMongoClient(opts, normalize)
 		defer func() {
@@ -259,7 +259,7 @@ func (gf *GoFramework) RegisterDbMongo(host string, user string, pass string, da
 }
 
 // Redis
-func (gf *GoFramework) RegisterRedis(address string, password string, db string) {
+func (zsf *GoFramework) RegisterRedis(address string, password string, db string) {
 
 	dbInt, err := strconv.Atoi(db)
 	if err != nil {
@@ -278,7 +278,7 @@ func (gf *GoFramework) RegisterRedis(address string, password string, db string)
 		}
 	}
 
-	gf.healthCheck = append(gf.healthCheck, func() (string, bool) {
+	zsf.healthCheck = append(zsf.healthCheck, func() (string, bool) {
 		serviceName := "RDS"
 		cli := newRedisClient(opts)
 		if cli == nil {
@@ -291,22 +291,22 @@ func (gf *GoFramework) RegisterRedis(address string, password string, db string)
 		return serviceName, true
 	})
 
-	err = gf.ioc.Provide(func() *redis.Client { return (newRedisClient(opts)) })
+	err = zsf.ioc.Provide(func() *redis.Client { return (newRedisClient(opts)) })
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func (gf *GoFramework) RegisterCache(constructor interface{}) {
-	err := gf.ioc.Provide(constructor)
+func (zsf *GoFramework) RegisterCache(constructor interface{}) {
+	err := zsf.ioc.Provide(constructor)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
 // RegisterPubSub registers Google Pub/Sub client
-func (gf *GoFramework) RegisterPubSub(projectID string, opts ...option.ClientOption) {
-	err := gf.ioc.Provide(func() (string, []option.ClientOption) {
+func (zsf *GoFramework) RegisterPubSub(projectID string, opts ...option.ClientOption) {
+	err := zsf.ioc.Provide(func() (string, []option.ClientOption) {
 		return projectID, opts
 	})
 	if err != nil {
@@ -314,7 +314,7 @@ func (gf *GoFramework) RegisterPubSub(projectID string, opts ...option.ClientOpt
 	}
 
 	// Add health check for PubSub
-	gf.healthCheck = append(gf.healthCheck, func() (string, bool) {
+	zsf.healthCheck = append(zsf.healthCheck, func() (string, bool) {
 		serviceName := "PUBSUB"
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -337,30 +337,30 @@ func (gf *GoFramework) RegisterPubSub(projectID string, opts ...option.ClientOpt
 }
 
 // PubSub producer and consumer registration
-func (gf *GoFramework) RegisterPubSubProducer(producer interface{}) {
-	err := gf.ioc.Provide(producer)
+func (zsf *GoFramework) RegisterPubSubProducer(producer interface{}) {
+	err := zsf.ioc.Provide(producer)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func (gf *GoFramework) RegisterPubSubConsumer(consumer interface{}) {
-	err := gf.ioc.Invoke(consumer)
+func (zsf *GoFramework) RegisterPubSubConsumer(consumer interface{}) {
+	err := zsf.ioc.Invoke(consumer)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
 // ConfigureCORS configures CORS settings
-func (gf *GoFramework) ConfigureCORS(allowOrigins []string, allowCredentials bool) {
+func (zsf *GoFramework) ConfigureCORS(allowOrigins []string, allowCredentials bool) {
 	if len(allowOrigins) > 0 {
-		gf.corsConfig.AllowOrigins = allowOrigins
+		zsf.corsConfig.AllowOrigins = allowOrigins
 	}
-	gf.corsConfig.AllowCredentials = allowCredentials
+	zsf.corsConfig.AllowCredentials = allowCredentials
 }
 
 // CreateJWTMiddlewareConfig creates a configuration for JWT middleware
-func (gf *GoFramework) CreateJWTMiddlewareConfig(publicPaths []string) *JWTMiddlewareConfig {
+func (zsf *GoFramework) CreateJWTMiddlewareConfig(publicPaths []string) *JWTMiddlewareConfig {
 	return &JWTMiddlewareConfig{
 		PublicPaths: publicPaths,
 	}
