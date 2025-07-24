@@ -6,13 +6,17 @@ Core framework for ZenSegur applications with MongoDB integration, Google Pub/Su
 
 - MongoDB Repository Pattern
 - Google Pub/Sub Integration
-- MongoDB Audit Logging
+- MongoDB Audit Logging with Digital Signatures
 - Telemetry and Monitoring
 - Redis Cache Integration
-- JWT Authentication Utilities with HttpOnly Cookies
+- JWT Authentication with Token Revocation
+- JWT Key Rotation Support (kid)
+- CSRF Protection with Double Submit Cookie
+- Rate Limiting
 - Role-based Access Control (RBAC)
 - Group-based Permission System
 - Multi-tenant Group Management
+- Token Blacklist with Redis
 
 ## Table of Contents
 
@@ -22,8 +26,11 @@ Core framework for ZenSegur applications with MongoDB integration, Google Pub/Su
   - [MongoDB Repository](#mongodb-repository)
   - [Google Pub/Sub](#google-pub-sub)
   - [Authentication & Authorization](#authentication--authorization)
+  - [Token Blacklist & Revocation](#token-blacklist--revocation)
+  - [JWT Key Rotation](#jwt-key-rotation)
+  - [CSRF Protection](#csrf-protection)
+  - [Audit Logging with Signatures](#audit-logging-with-signatures)
   - [Group-based Permissions](#group-based-permissions)
-  - [Audit Logging](#audit-logging)
   - [Redis Cache](#redis-cache)
   - [Telemetry](#telemetry)
 - [API Reference](#api-reference)
@@ -157,11 +164,14 @@ defer consumer.Close()
 go consumer.HandleFn()
 ```
 
-### Audit Logging
+### Audit Logging with Signatures
 
-Automatic audit logging for MongoDB operations.
+Automatic audit logging for MongoDB operations with digital signatures to prevent tampering.
 
 ```go
+// Register audit signature generator
+framework.RegisterAuditSignature("audit-secret-key")
+
 // Enable audit logging in your configuration
 v := viper.New()
 v.SetDefault("audit.enabled", true)
@@ -169,7 +179,20 @@ v.SetDefault("audit.enabled", true)
 // When creating your repository, audit logging is automatically enabled
 repo := zensframework.NewMongoDbRepository[YourEntity](db, monitoring, v)
 
-// All insert, update, and delete operations will be logged automatically
+// All insert, update, and delete operations will be logged automatically with signatures
+
+// Manual signature verification
+framework.Invoke(func(auditSig *zensframework.AuditSignature) {
+    // Generate signature for operation
+    signature, err := auditSig.GenerateOperationSignature(
+        "update", "users", "user-id", beforeData, afterData, "user-id", timestamp,
+    )
+    
+    // Verify signature
+    isValid := auditSig.VerifyOperationSignature(
+        "update", "users", "user-id", beforeData, afterData, "user-id", timestamp, signature,
+    )
+})
 ```
 
 ### JWT Authentication
@@ -296,6 +319,87 @@ hashedPassword, _ := zensframework.HashPassword("user-password")
 isValid := zensframework.CheckPassword("user-password", hashedPassword)
 ```
 
+### Token Blacklist & Revocation
+
+Redis-based token blacklist for secure token revocation.
+
+```go
+// Register token blacklist
+framework.RegisterTokenBlacklist()
+
+// Using token blacklist
+framework.Invoke(func(blacklist *zensframework.TokenBlacklist) {
+    // Revoke a specific token
+    err := blacklist.RevokeToken(ctx, tokenString)
+    
+    // Check if token is revoked
+    isRevoked, err := blacklist.IsTokenRevoked(ctx, tokenString)
+    
+    // Revoke all tokens for a user
+    err := blacklist.RevokeAllUserTokens(ctx, userID)
+    
+    // Check if user tokens are revoked
+    isRevoked, err := blacklist.IsUserTokensRevoked(ctx, userID, tokenIssuedAt)
+})
+```
+
+### JWT Key Rotation
+
+Support for multiple JWT keys with rotation capabilities.
+
+```go
+// Register JWT key manager
+framework.RegisterJWTKeyManager("initial-secret", "key-001")
+
+// Using key rotation
+framework.Invoke(func(keyManager *zensframework.JWTKeyManager) {
+    // Add new key
+    keyManager.AddKey("key-002", "new-secret-key")
+    
+    // Set current key for new tokens
+    err := keyManager.SetCurrentKey("key-002")
+    
+    // Remove old key (cannot remove current key)
+    err := keyManager.RemoveKey("key-001")
+})
+
+// Using JWT helper with rotation
+framework.Invoke(func(jwtHelper *zensframework.JWTHelperWithRotation) {
+    // Generate token with current key
+    token, err := jwtHelper.GenerateTokenWithRotation(claims, expiry)
+    
+    // Validate token (automatically uses correct key based on kid)
+    err := jwtHelper.ValidateTokenWithRotation(tokenString, claims)
+})
+```
+
+### CSRF Protection
+
+Double Submit Cookie CSRF protection.
+
+```go
+// Register CSRF protection
+framework.RegisterCSRFProtection(router)
+
+// Get CSRF token endpoint (automatically registered)
+// GET /csrf-token
+// Response: {"token": "csrf-token-value"}
+
+// Client usage:
+// 1. Get CSRF token from /csrf-token endpoint
+// 2. Include token in X-CSRF-Token header for non-safe methods
+// 3. Token is also set as cookie automatically
+
+// Manual CSRF token generation
+framework.Invoke(func(c *gin.Context) {
+    // Set CSRF token for current session
+    zensframework.SetCSRFToken(c)
+    
+    // Generate new token
+    token := zensframework.GenerateCSRFToken()
+})
+```
+
 ### Redis Cache
 
 Redis cache integration for high-performance caching.
@@ -363,6 +467,9 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 | `RegisterUserGroupMappingRepository(constructor interface{})` | Registers a repository for user-group mappings |
 | `RegisterGroupManager()` | Registers the group manager |
 | `RegisterAuthEndpoints()` | Registers authentication endpoints |
+| `RegisterTokenBlacklist()` | Registers token blacklist with Redis |
+| `RegisterJWTKeyManager(initialKey, initialKid)` | Registers JWT key manager for rotation |
+| `RegisterAuditSignature(secretKey)` | Registers audit signature generator |
 | `RegisterRateLimiter(routerGroup, config)` | Registers rate limiting middleware |
 | `RegisterCSRFProtection(routerGroup)` | Registers CSRF protection middleware |
 | `ConfigureCORS(allowOrigins []string, allowCredentials bool)` | Configures CORS settings |
@@ -453,6 +560,37 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 | `RequireAllRoles(roles...)` | Creates a middleware that requires all specified roles |
 | `RequireAllPermissions(permissions...)` | Creates a middleware that requires all specified permissions |
 
+### Token Blacklist
+
+| Method | Description |
+|--------|-------------|
+| `NewTokenBlacklist(redisClient)` | Creates a new token blacklist |
+| `RevokeToken(ctx, tokenString)` | Revokes a specific token |
+| `IsTokenRevoked(ctx, tokenString)` | Checks if a token is revoked |
+| `RevokeAllUserTokens(ctx, userID)` | Revokes all tokens for a user |
+| `IsUserTokensRevoked(ctx, userID, tokenIssuedAt)` | Checks if user tokens are revoked |
+
+### JWT Key Rotation
+
+| Method | Description |
+|--------|-------------|
+| `NewJWTKeyManager(initialKey, initialKid)` | Creates a new key manager |
+| `AddKey(kid, secret)` | Adds a new key |
+| `SetCurrentKey(kid)` | Sets the current key for new tokens |
+| `GetCurrentKey()` | Returns the current key |
+| `GetKey(kid)` | Returns a specific key |
+| `RemoveKey(kid)` | Removes a key (except current) |
+| `GenerateTokenWithRotation(claims, expiry)` | Generates token with current key |
+| `ValidateTokenWithRotation(tokenString, claims)` | Validates token with appropriate key |
+
+### Audit Signatures
+
+| Method | Description |
+|--------|-------------|
+| `NewAuditSignature(secretKey)` | Creates a new audit signature generator |
+| `GenerateOperationSignature(...)` | Generates signature for audit operation |
+| `VerifyOperationSignature(...)` | Verifies an audit operation signature |
+
 ### Security Features
 
 | Method | Description |
@@ -535,4 +673,24 @@ framework.Invoke(func(groupManager *zensframework.GroupManager) {
 
 // Example response
 // {"allowed": true, "message": "User has all required roles"}
+
+// Example permissions response (GET /api/auth/permissions)
+// {
+//   "roles": ["ADMIN", "USER"],
+//   "permissions": [
+//     "users:ler-basico",
+//     "users:editar-dados",
+//     "propostas:ler-valor",
+//     "propostas:editar-prazo"
+//   ]
+// }
+
+// Permission naming pattern: [domínio]:[ação]-[escopo]
+// Examples:
+// - propostas:ler-basico
+// - propostas:ler-valor  
+// - propostas:editar-valor
+// - propostas:editar-prazo
+// - users:criar-admin
+// - users:listar-todos
 ```
