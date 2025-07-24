@@ -32,6 +32,8 @@ type JWTConfig struct {
 	CookieSecure   bool          `json:"cookieSecure"`
 	CookieHTTPOnly bool          `json:"cookieHttpOnly"`
 	CookieSameSite http.SameSite `json:"cookieSameSite"`
+	Issuer         string        `json:"issuer"`
+	BcryptCost     int           `json:"bcryptCost"`
 }
 
 // JWTHelper provides JWT utilities
@@ -41,6 +43,10 @@ type JWTHelper struct {
 
 // NewJWTHelper creates a new JWT helper
 func NewJWTHelper(config *JWTConfig) *JWTHelper {
+	if config.BcryptCost <= 0 {
+		config.BcryptCost = 14
+	}
+
 	return &JWTHelper{
 		config: config,
 	}
@@ -48,7 +54,15 @@ func NewJWTHelper(config *JWTConfig) *JWTHelper {
 
 // HashPassword creates a bcrypt hash from a password
 func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	return HashPasswordWithCost(password, 14)
+}
+
+// HashPasswordWithCost creates a bcrypt hash with specified cost factor
+func HashPasswordWithCost(password string, cost int) (string, error) {
+	if cost < bcrypt.MinCost || cost > bcrypt.MaxCost {
+		cost = 14 // Default cost if invalid
+	}
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), cost)
 	return string(bytes), err
 }
 
@@ -60,6 +74,15 @@ func CheckPassword(password, hash string) bool {
 
 // GenerateToken generates a JWT token with the given claims
 func (h *JWTHelper) GenerateToken(claims jwt.Claims, expiry time.Duration) (string, error) {
+	if h.config.Issuer != "" {
+		if mapClaims, ok := claims.(jwt.MapClaims); ok {
+			// Add issuer
+			if _, exists := mapClaims["iss"]; !exists {
+				mapClaims["iss"] = h.config.Issuer
+			}
+		}
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(h.config.Secret))
 }
@@ -87,6 +110,15 @@ func (h *JWTHelper) ValidateToken(tokenString string, claims jwt.Claims) error {
 
 	if !token.Valid {
 		return ErrInvalidToken
+	}
+
+	// Verify issuer
+	if h.config.Issuer != "" {
+		if mapClaims, ok := claims.(jwt.MapClaims); ok {
+			if issuer, ok := mapClaims["iss"].(string); !ok || issuer != h.config.Issuer {
+				return ErrInvalidToken
+			}
+		}
 	}
 
 	return nil

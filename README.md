@@ -174,7 +174,7 @@ repo := zensframework.NewMongoDbRepository[YourEntity](db, monitoring, v)
 
 ### JWT Authentication
 
-Utilities for JWT token generation, validation, and HttpOnly cookie management.
+Utilities for JWT token generation, validation, and HttpOnly cookie management with enhanced security features.
 
 ```go
 // Configure JWT helper
@@ -186,10 +186,24 @@ config := &zensframework.JWTConfig{
     CookieSecure:   true,
     CookieHTTPOnly: true,
     CookieSameSite: http.SameSiteStrictMode,
+    Issuer:         "zensegur-auth",  // Emissor para validação
+    BcryptCost:     14,               // Fator de custo para hashing de senhas
 }
 
 // Register JWT helper
 framework.RegisterJWTHelper(config)
+
+// Register CSRF protection
+framework.RegisterCSRFProtection(router)
+
+// Register Rate Limiter (5 requests per minute by default)
+framework.RegisterRateLimiter(router, DefaultRateLimiterConfig())
+
+// Or with custom configuration
+framework.RegisterRateLimiter(loginRouter, RateLimiterConfig{
+    RequestsPerMinute: 3,  // 3 tentativas por minuto
+    BurstSize:         3,
+})
 
 // Create middleware config with public paths
 middlewareConfig := framework.CreateJWTMiddlewareConfig([]string{
@@ -345,6 +359,12 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 | `RegisterPubSubProducer(producer interface{})` | Registers a PubSub producer |
 | `RegisterPubSubConsumer(consumer interface{})` | Registers a PubSub consumer |
 | `RegisterJWTHelper(config *JWTConfig)` | Registers the JWT helper |
+| `RegisterGroupRepository(constructor interface{})` | Registers a repository for groups |
+| `RegisterUserGroupMappingRepository(constructor interface{})` | Registers a repository for user-group mappings |
+| `RegisterGroupManager()` | Registers the group manager |
+| `RegisterAuthEndpoints()` | Registers authentication endpoints |
+| `RegisterRateLimiter(routerGroup, config)` | Registers rate limiting middleware |
+| `RegisterCSRFProtection(routerGroup)` | Registers CSRF protection middleware |
 | `ConfigureCORS(allowOrigins []string, allowCredentials bool)` | Configures CORS settings |
 | `CreateJWTMiddlewareConfig(publicPaths []string)` | Creates a configuration for JWT middleware with public paths |
 | `Start()` | Starts the HTTP server |
@@ -419,6 +439,7 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 |--------|-------------|
 | `NewJWTHelper(config)` | Creates a new JWT helper |
 | `HashPassword(password)` | Creates a bcrypt hash from a password |
+| `HashPasswordWithCost(password, cost)` | Creates a bcrypt hash with custom cost factor |
 | `CheckPassword(password, hash)` | Compares a password with a hash |
 | `GenerateToken(claims, expiry)` | Generates a JWT token with the given claims |
 | `ValidateToken(tokenString, claims)` | Validates a JWT token and returns the claims |
@@ -429,6 +450,18 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 | `AuthMiddlewareWithConfig(config, validateFunc)` | Creates a middleware for JWT authentication with configuration |
 | `RequirePermission(permissions...)` | Creates a middleware that requires specific permissions |
 | `RequireRole(roles...)` | Creates a middleware that requires specific roles |
+| `RequireAllRoles(roles...)` | Creates a middleware that requires all specified roles |
+| `RequireAllPermissions(permissions...)` | Creates a middleware that requires all specified permissions |
+
+### Security Features
+
+| Method | Description |
+|--------|-------------|
+| `CSRFMiddleware()` | Creates a middleware for CSRF protection |
+| `SetCSRFToken(c)` | Sets a CSRF token for the current session |
+| `GenerateCSRFToken()` | Generates a new CSRF token |
+| `RateLimiterMiddleware(config)` | Creates a middleware for rate limiting |
+| `DefaultRateLimiterConfig()` | Returns default rate limiter configuration |
 
 ### BSON Helpers
 
