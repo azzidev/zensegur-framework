@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -74,12 +75,22 @@ func CheckPassword(password, hash string) bool {
 
 // GenerateToken generates a JWT token with the given claims
 func (h *JWTHelper) GenerateToken(claims jwt.Claims, expiry time.Duration) (string, error) {
-	if h.config.Issuer != "" {
-		if mapClaims, ok := claims.(jwt.MapClaims); ok {
-			// Add issuer
+	if mapClaims, ok := claims.(jwt.MapClaims); ok {
+		// Add issuer
+		if h.config.Issuer != "" {
 			if _, exists := mapClaims["iss"]; !exists {
 				mapClaims["iss"] = h.config.Issuer
 			}
+		}
+		
+		// Add jti (JWT ID) for token revocation
+		if _, exists := mapClaims["jti"]; !exists {
+			mapClaims["jti"] = uuid.New().String()
+		}
+		
+		// Add iat (issued at) for user-level revocation control
+		if _, exists := mapClaims["iat"]; !exists {
+			mapClaims["iat"] = time.Now().Unix()
 		}
 	}
 

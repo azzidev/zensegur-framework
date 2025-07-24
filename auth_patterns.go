@@ -95,7 +95,7 @@ func (ae *AuthEndpoints) CheckPermission(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// GetUserPermissions retorna todas as permissões de um usuário
+// GetUserPermissions retorna todas as permissões e roles de um usuário
 func (ae *AuthEndpoints) GetUserPermissions(c *gin.Context) {
 	// Get user ID
 	userID, exists := GetUserID(c)
@@ -104,17 +104,28 @@ func (ae *AuthEndpoints) GetUserPermissions(c *gin.Context) {
 		return
 	}
 
-	// Get permissions
+	// Get permissions from groups
 	permissions, err := ae.groupManager.GetUserPermissions(c, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Authentication failed (5)"}) // Código 5: Erro ao obter permissões
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"permissions": permissions})
+	// Get roles from JWT claims
+	roles := []string{}
+	if userRoles, exists := c.Get("roles"); exists {
+		if rolesList, ok := userRoles.([]string); ok {
+			roles = rolesList
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"roles":       roles,
+		"permissions": permissions,
+	})
 }
 
-// CSRF Protection
+// CSRF Protection with Double Submit Cookie
 
 // CSRFToken representa um token CSRF
 type CSRFToken struct {
@@ -132,7 +143,7 @@ func GenerateCSRFToken() CSRFToken {
 	}
 }
 
-// CSRFMiddleware cria um middleware para proteção CSRF
+// CSRFMiddleware cria um middleware para proteção CSRF com Double Submit Cookie
 func CSRFMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Ignora métodos seguros (GET, HEAD, OPTIONS)
@@ -141,11 +152,14 @@ func CSRFMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Verifica token CSRF
-		requestToken := c.GetHeader("X-CSRF-Token")
-		sessionToken, exists := c.Get("csrf_token")
+		// Obtém token do header X-CSRF-Token
+		headerToken := c.GetHeader("X-CSRF-Token")
 		
-		if !exists || requestToken == "" || requestToken != sessionToken.(string) {
+		// Obtém token do cookie CSRF
+		cookieToken, err := c.Cookie("csrf_token")
+		
+		// Valida Double Submit Cookie: header e cookie devem existir e ser iguais
+		if err != nil || headerToken == "" || cookieToken == "" || headerToken != cookieToken {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error": "Authentication failed (6)", // Código 6: Token CSRF inválido
 			})
@@ -156,10 +170,22 @@ func CSRFMiddleware() gin.HandlerFunc {
 	}
 }
 
-// SetCSRFToken define um token CSRF para a sessão atual
+// SetCSRFToken define um token CSRF como cookie e header
 func SetCSRFToken(c *gin.Context) {
 	csrfToken := GenerateCSRFToken()
-	c.Set("csrf_token", csrfToken.Token)
+	
+	// Define cookie CSRF (HttpOnly = false para permitir leitura pelo JS)
+	c.SetCookie(
+		"csrf_token",
+		csrfToken.Token,
+		int(time.Hour.Seconds()),
+		"/",
+		"", // domain vazio para usar o domínio atual
+		false, // secure = false para desenvolvimento
+		false, // httpOnly = false para permitir acesso via JS
+	)
+	
+	// Também retorna no header para facilitar o uso
 	c.Header("X-CSRF-Token", csrfToken.Token)
 }
 
