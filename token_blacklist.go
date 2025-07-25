@@ -49,7 +49,7 @@ func (tb *TokenBlacklist) RevokeToken(ctx context.Context, tokenString string) e
 	// Calcula TTL baseado na expiração do token
 	expTime := time.Unix(int64(exp), 0)
 	ttl := time.Until(expTime)
-	
+
 	// Se o token já expirou, não precisa adicionar à blacklist
 	if ttl <= 0 {
 		return nil
@@ -102,12 +102,12 @@ func (tb *TokenBlacklist) RevokeAllUserTokens(ctx context.Context, userID string
 func (tb *TokenBlacklist) IsUserTokensRevoked(ctx context.Context, userID string, tokenIssuedAt int64) (bool, error) {
 	key := fmt.Sprintf("blacklist:user:%s", userID)
 	result := tb.redisClient.Get(ctx, key)
-	
+
 	if result.Err() == redis.Nil {
 		// Não há revogação para este usuário
 		return false, nil
 	}
-	
+
 	if result.Err() != nil {
 		return false, result.Err()
 	}
@@ -123,9 +123,9 @@ func (tb *TokenBlacklist) IsUserTokensRevoked(ctx context.Context, userID string
 }
 
 // RegisterTokenBlacklist registra o blacklist no framework
-func (gf *GoFramework) RegisterTokenBlacklist() {
-	gf.Invoke(func(redisClient *redis.Client) {
-		err := gf.ioc.Provide(func() *TokenBlacklist {
+func (zsf *ZSFramework) RegisterTokenBlacklist() {
+	zsf.Invoke(func(redisClient *redis.Client) {
+		err := zsf.ioc.Provide(func() *TokenBlacklist {
 			return NewTokenBlacklist(redisClient)
 		})
 		if err != nil {

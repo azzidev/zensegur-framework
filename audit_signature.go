@@ -32,14 +32,14 @@ func (as *AuditSignature) GenerateOperationSignature(
 ) (string, error) {
 	// Cria estrutura para assinatura
 	signatureData := map[string]interface{}{
-		"operation":      operation,
-		"collection":     collectionName,
-		"documentId":     documentID,
-		"before":         before,
-		"after":          after,
-		"userId":         userID,
-		"timestamp":      timestamp.Unix(),
-		"secretKey":      as.secretKey,
+		"operation":  operation,
+		"collection": collectionName,
+		"documentId": documentID,
+		"before":     before,
+		"after":      after,
+		"userId":     userID,
+		"timestamp":  timestamp.Unix(),
+		"secretKey":  as.secretKey,
 	}
 
 	// Serializa para JSON de forma determinística
@@ -91,8 +91,8 @@ type AuditRecord struct {
 }
 
 // RegisterAuditSignature registra o gerador de assinaturas no framework
-func (gf *GoFramework) RegisterAuditSignature(secretKey string) {
-	err := gf.ioc.Provide(func() *AuditSignature {
+func (zsf *ZSFramework) RegisterAuditSignature(secretKey string) {
+	err := zsf.ioc.Provide(func() *AuditSignature {
 		return NewAuditSignature(secretKey)
 	})
 	if err != nil {

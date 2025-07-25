@@ -22,7 +22,7 @@ Core framework for ZenSegur applications with MongoDB integration, Google Pub/Su
 
 - [Installation](#installation)
 - [Core Components](#core-components)
-  - [GoFramework](#goframework)
+  - [ZSFramework](#ZSFramework)
   - [MongoDB Repository](#mongodb-repository)
   - [Google Pub/Sub](#google-pub-sub)
   - [Authentication & Authorization](#authentication--authorization)
@@ -43,13 +43,13 @@ go get github.com/azzidev/zensegur-framework
 
 ## Core Components
 
-### GoFramework
+### ZSFramework
 
 The main framework container that orchestrates all components.
 
 ```go
 // Initialize the framework
-framework := zensframework.NewGoFramework()
+framework := zensframework.NewZSFramework()
 
 // Configure CORS (default is already secure)
 framework.ConfigureCORS([]string{"https://zensegur.com.br", "https://*.zensegur.com.br"}, true)
@@ -448,11 +448,11 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 
 ## API Reference
 
-### GoFramework
+### ZSFramework
 
 | Method | Description |
 |--------|-------------|
-| `NewGoFramework(opts ...GoFrameworkOptions)` | Creates a new framework instance |
+| `NewZSFramework(opts ...ZSFrameworkOptions)` | Creates a new framework instance |
 | `RegisterDbMongo(host, user, pass, database string, normalize bool)` | Registers MongoDB connection |
 | `RegisterPubSub(projectID string, opts ...option.ClientOption)` | Registers Google Pub/Sub client |
 | `RegisterRedis(address, password, db string)` | Registers Redis connection |

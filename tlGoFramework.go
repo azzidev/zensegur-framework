@@ -26,7 +26,7 @@ import (
 	"google.golang.org/api/option"
 )
 
-type GoFramework struct {
+type ZSFramework struct {
 	ioc            *dig.Container
 	configuration  *viper.Viper
 	server         *gin.Engine
@@ -35,8 +35,8 @@ type GoFramework struct {
 	corsConfig     *cors.Config
 }
 
-type GoFrameworkOptions interface {
-	run(zsf *GoFramework)
+type ZSFrameworkOptions interface {
+	run(zsf *ZSFramework)
 }
 
 func AddTenant(monitoring *Monitoring, v *viper.Viper) gin.HandlerFunc {
@@ -94,7 +94,7 @@ func AddTenant(monitoring *Monitoring, v *viper.Viper) gin.HandlerFunc {
 	}
 }
 
-func NewGoFramework(opts ...GoFrameworkOptions) *GoFramework {
+func NewZSFramework(opts ...ZSFrameworkOptions) *ZSFramework {
 	location, err := time.LoadLocation("UTC")
 
 	if err != nil {
@@ -109,7 +109,7 @@ func NewGoFramework(opts ...GoFrameworkOptions) *GoFramework {
 	corsConfig.AllowHeaders = []string{"Content-Type", "Authorization", "X-Requested-With"}
 	corsConfig.AllowCredentials = true
 
-	zsf := &GoFramework{
+	zsf := &ZSFramework{
 		ioc:           dig.New(),
 		configuration: initializeViper(),
 		server:        gin.Default(),
@@ -169,19 +169,19 @@ func initializeViper() *viper.Viper {
 	return v
 }
 
-func (zsf *GoFramework) GetConfig(key string) string {
+func (zsf *ZSFramework) GetConfig(key string) string {
 	return zsf.configuration.GetString(key)
 }
 
 // DIG
-func (zsf *GoFramework) RegisterRepository(constructor interface{}) {
+func (zsf *ZSFramework) RegisterRepository(constructor interface{}) {
 	err := zsf.ioc.Provide(constructor)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func (zsf *GoFramework) RegisterApplication(application interface{}) {
+func (zsf *ZSFramework) RegisterApplication(application interface{}) {
 	err := zsf.ioc.Provide(application)
 	if err != nil {
 		log.Panic(err)
@@ -189,14 +189,14 @@ func (zsf *GoFramework) RegisterApplication(application interface{}) {
 }
 
 // GIN
-func (zsf *GoFramework) RegisterController(controller interface{}) {
+func (zsf *ZSFramework) RegisterController(controller interface{}) {
 	err := zsf.ioc.Invoke(controller)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func (zsf *GoFramework) Start() error {
+func (zsf *ZSFramework) Start() error {
 	port := os.Getenv("port")
 	if port == "" {
 		port = "8081"
@@ -204,7 +204,7 @@ func (zsf *GoFramework) Start() error {
 	return zsf.server.Run(":" + port)
 }
 
-func (zsf *GoFramework) Invoke(function interface{}) {
+func (zsf *ZSFramework) Invoke(function interface{}) {
 	err := zsf.ioc.Invoke(function)
 	if err != nil {
 		log.Panic(err)
@@ -212,7 +212,7 @@ func (zsf *GoFramework) Invoke(function interface{}) {
 }
 
 // mongo
-func (zsf *GoFramework) RegisterDbMongo(host string, user string, pass string, database string, normalize bool) {
+func (zsf *ZSFramework) RegisterDbMongo(host string, user string, pass string, database string, normalize bool) {
 
 	opts := options.Client().ApplyURI(host)
 
@@ -259,7 +259,7 @@ func (zsf *GoFramework) RegisterDbMongo(host string, user string, pass string, d
 }
 
 // Redis
-func (zsf *GoFramework) RegisterRedis(address string, password string, db string) {
+func (zsf *ZSFramework) RegisterRedis(address string, password string, db string) {
 
 	dbInt, err := strconv.Atoi(db)
 	if err != nil {
@@ -297,7 +297,7 @@ func (zsf *GoFramework) RegisterRedis(address string, password string, db string
 	}
 }
 
-func (zsf *GoFramework) RegisterCache(constructor interface{}) {
+func (zsf *ZSFramework) RegisterCache(constructor interface{}) {
 	err := zsf.ioc.Provide(constructor)
 	if err != nil {
 		log.Panic(err)
@@ -305,7 +305,7 @@ func (zsf *GoFramework) RegisterCache(constructor interface{}) {
 }
 
 // RegisterPubSub registers Google Pub/Sub client
-func (zsf *GoFramework) RegisterPubSub(projectID string, opts ...option.ClientOption) {
+func (zsf *ZSFramework) RegisterPubSub(projectID string, opts ...option.ClientOption) {
 	err := zsf.ioc.Provide(func() (string, []option.ClientOption) {
 		return projectID, opts
 	})
@@ -337,14 +337,14 @@ func (zsf *GoFramework) RegisterPubSub(projectID string, opts ...option.ClientOp
 }
 
 // PubSub producer and consumer registration
-func (zsf *GoFramework) RegisterPubSubProducer(producer interface{}) {
+func (zsf *ZSFramework) RegisterPubSubProducer(producer interface{}) {
 	err := zsf.ioc.Provide(producer)
 	if err != nil {
 		log.Panic(err)
 	}
 }
 
-func (zsf *GoFramework) RegisterPubSubConsumer(consumer interface{}) {
+func (zsf *ZSFramework) RegisterPubSubConsumer(consumer interface{}) {
 	err := zsf.ioc.Invoke(consumer)
 	if err != nil {
 		log.Panic(err)
@@ -352,7 +352,7 @@ func (zsf *GoFramework) RegisterPubSubConsumer(consumer interface{}) {
 }
 
 // ConfigureCORS configures CORS settings
-func (zsf *GoFramework) ConfigureCORS(allowOrigins []string, allowCredentials bool) {
+func (zsf *ZSFramework) ConfigureCORS(allowOrigins []string, allowCredentials bool) {
 	if len(allowOrigins) > 0 {
 		zsf.corsConfig.AllowOrigins = allowOrigins
 	}
@@ -360,7 +360,7 @@ func (zsf *GoFramework) ConfigureCORS(allowOrigins []string, allowCredentials bo
 }
 
 // CreateJWTMiddlewareConfig creates a configuration for JWT middleware
-func (zsf *GoFramework) CreateJWTMiddlewareConfig(publicPaths []string) *JWTMiddlewareConfig {
+func (zsf *ZSFramework) CreateJWTMiddlewareConfig(publicPaths []string) *JWTMiddlewareConfig {
 	return &JWTMiddlewareConfig{
 		PublicPaths: publicPaths,
 	}

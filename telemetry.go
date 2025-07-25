@@ -42,7 +42,7 @@ func NewTelemetry(projectName string, endpoint string, apiKey string) *GoTelemet
 	return &GoTelemetry{Endpoint: endpoint, ApiKey: apiKey, ProjectName: projectName}
 }
 
-func (gt *GoTelemetry) run(zsf *GoFramework) {
+func (gt *GoTelemetry) run(zsf *ZSFramework) {
 
 	traceConnOpts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(gt.Endpoint),

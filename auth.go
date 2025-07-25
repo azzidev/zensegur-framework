@@ -82,12 +82,12 @@ func (h *JWTHelper) GenerateToken(claims jwt.Claims, expiry time.Duration) (stri
 				mapClaims["iss"] = h.config.Issuer
 			}
 		}
-		
+
 		// Add jti (JWT ID) for token revocation
 		if _, exists := mapClaims["jti"]; !exists {
 			mapClaims["jti"] = uuid.New().String()
 		}
-		
+
 		// Add iat (issued at) for user-level revocation control
 		if _, exists := mapClaims["iat"]; !exists {
 			mapClaims["iat"] = time.Now().Unix()
@@ -289,7 +289,7 @@ func (h *JWTHelper) RequireRole(roles ...string) gin.HandlerFunc {
 }
 
 // RegisterJWTHelper registers the JWT helper with the framework
-func (zsf *GoFramework) RegisterJWTHelper(config *JWTConfig) {
+func (zsf *ZSFramework) RegisterJWTHelper(config *JWTConfig) {
 	err := zsf.ioc.Provide(func() *JWTHelper {
 		return NewJWTHelper(config)
 	})
@@ -299,7 +299,7 @@ func (zsf *GoFramework) RegisterJWTHelper(config *JWTConfig) {
 }
 
 // RegisterGroupRepository registers a repository for groups
-func (zsf *GoFramework) RegisterGroupRepository(constructor interface{}) {
+func (zsf *ZSFramework) RegisterGroupRepository(constructor interface{}) {
 	err := zsf.ioc.Provide(constructor)
 	if err != nil {
 		log.Panic(err)
@@ -307,7 +307,7 @@ func (zsf *GoFramework) RegisterGroupRepository(constructor interface{}) {
 }
 
 // RegisterUserGroupMappingRepository registers a repository for user-group mappings
-func (zsf *GoFramework) RegisterUserGroupMappingRepository(constructor interface{}) {
+func (zsf *ZSFramework) RegisterUserGroupMappingRepository(constructor interface{}) {
 	err := zsf.ioc.Provide(constructor)
 	if err != nil {
 		log.Panic(err)

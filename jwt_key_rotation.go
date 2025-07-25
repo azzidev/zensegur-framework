@@ -37,11 +37,11 @@ func (km *JWTKeyManager) AddKey(kid, secret string) {
 func (km *JWTKeyManager) SetCurrentKey(kid string) error {
 	km.mutex.RLock()
 	defer km.mutex.RUnlock()
-	
+
 	if _, exists := km.keys[kid]; !exists {
 		return fmt.Errorf("key with id %s not found", kid)
 	}
-	
+
 	km.currentKid = kid
 	return nil
 }
@@ -65,11 +65,11 @@ func (km *JWTKeyManager) GetKey(kid string) (string, bool) {
 func (km *JWTKeyManager) RemoveKey(kid string) error {
 	km.mutex.Lock()
 	defer km.mutex.Unlock()
-	
+
 	if kid == km.currentKid {
 		return fmt.Errorf("cannot remove current key")
 	}
-	
+
 	delete(km.keys, kid)
 	return nil
 }
@@ -91,7 +91,7 @@ func NewJWTHelperWithRotation(config *JWTConfig, keyManager *JWTKeyManager) *JWT
 // GenerateTokenWithRotation gera um token com a chave atual
 func (h *JWTHelperWithRotation) GenerateTokenWithRotation(claims jwt.Claims, expiry time.Duration) (string, error) {
 	currentKid, currentSecret := h.keyManager.GetCurrentKey()
-	
+
 	if mapClaims, ok := claims.(jwt.MapClaims); ok {
 		// Add standard claims
 		if h.config.Issuer != "" {
@@ -99,11 +99,11 @@ func (h *JWTHelperWithRotation) GenerateTokenWithRotation(claims jwt.Claims, exp
 				mapClaims["iss"] = h.config.Issuer
 			}
 		}
-		
+
 		if _, exists := mapClaims["jti"]; !exists {
 			mapClaims["jti"] = uuid.New().String()
 		}
-		
+
 		if _, exists := mapClaims["iat"]; !exists {
 			mapClaims["iat"] = time.Now().Unix()
 		}
@@ -112,7 +112,7 @@ func (h *JWTHelperWithRotation) GenerateTokenWithRotation(claims jwt.Claims, exp
 	// Create token with kid in header
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	token.Header["kid"] = currentKid
-	
+
 	return token.SignedString([]byte(currentSecret))
 }
 
@@ -124,7 +124,7 @@ func (h *JWTHelperWithRotation) ValidateTokenWithRotation(tokenString string, cl
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		
+
 		// Get kid from header
 		kid, ok := token.Header["kid"].(string)
 		if !ok {
@@ -132,13 +132,13 @@ func (h *JWTHelperWithRotation) ValidateTokenWithRotation(tokenString string, cl
 			_, currentSecret := h.keyManager.GetCurrentKey()
 			return []byte(currentSecret), nil
 		}
-		
+
 		// Get secret for this kid
 		secret, exists := h.keyManager.GetKey(kid)
 		if !exists {
 			return nil, fmt.Errorf("unknown key id: %s", kid)
 		}
-		
+
 		return []byte(secret), nil
 	})
 
@@ -169,8 +169,8 @@ func (h *JWTHelperWithRotation) ValidateTokenWithRotation(tokenString string, cl
 }
 
 // RegisterJWTKeyManager registra o gerenciador de chaves no framework
-func (gf *GoFramework) RegisterJWTKeyManager(initialKey, initialKid string) {
-	err := gf.ioc.Provide(func() *JWTKeyManager {
+func (zsf *ZSFramework) RegisterJWTKeyManager(initialKey, initialKid string) {
+	err := zsf.ioc.Provide(func() *JWTKeyManager {
 		return NewJWTKeyManager(initialKey, initialKid)
 	})
 	if err != nil {

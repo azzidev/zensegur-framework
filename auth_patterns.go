@@ -154,10 +154,10 @@ func CSRFMiddleware() gin.HandlerFunc {
 
 		// Obtém token do header X-CSRF-Token
 		headerToken := c.GetHeader("X-CSRF-Token")
-		
+
 		// Obtém token do cookie CSRF
 		cookieToken, err := c.Cookie("csrf_token")
-		
+
 		// Valida Double Submit Cookie: header e cookie devem existir e ser iguais
 		if err != nil || headerToken == "" || cookieToken == "" || headerToken != cookieToken {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
@@ -173,18 +173,18 @@ func CSRFMiddleware() gin.HandlerFunc {
 // SetCSRFToken define um token CSRF como cookie e header
 func SetCSRFToken(c *gin.Context) {
 	csrfToken := GenerateCSRFToken()
-	
+
 	// Define cookie CSRF (HttpOnly = false para permitir leitura pelo JS)
 	c.SetCookie(
 		"csrf_token",
 		csrfToken.Token,
 		int(time.Hour.Seconds()),
 		"/",
-		"", // domain vazio para usar o domínio atual
+		"",    // domain vazio para usar o domínio atual
 		false, // secure = false para desenvolvimento
 		false, // httpOnly = false para permitir acesso via JS
 	)
-	
+
 	// Também retorna no header para facilitar o uso
 	c.Header("X-CSRF-Token", csrfToken.Token)
 }
@@ -209,18 +209,18 @@ func DefaultRateLimiterConfig() RateLimiterConfig {
 func RateLimiterMiddleware(config RateLimiterConfig) gin.HandlerFunc {
 	// Cria um mapa para armazenar limiters por IP
 	limiters := make(map[string]*rate.Limiter)
-	
+
 	return func(c *gin.Context) {
 		// Obtém o IP do cliente
 		clientIP := c.ClientIP()
-		
+
 		// Obtém ou cria um limiter para este IP
 		limiter, exists := limiters[clientIP]
 		if !exists {
 			limiter = rate.NewLimiter(rate.Limit(config.RequestsPerMinute)/60, config.BurstSize)
 			limiters[clientIP] = limiter
 		}
-		
+
 		// Verifica se a requisição está dentro do limite
 		if !limiter.Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
@@ -228,28 +228,28 @@ func RateLimiterMiddleware(config RateLimiterConfig) gin.HandlerFunc {
 			})
 			return
 		}
-		
+
 		c.Next()
 	}
 }
 
 // RegisterAuthEndpoints registra os endpoints de autenticação no framework
-func (gf *GoFramework) RegisterAuthEndpoints() {
-	gf.Invoke(func(jwtHelper *JWTHelper, groupManager *GroupManager, router *gin.RouterGroup) {
+func (zsf *ZSFramework) RegisterAuthEndpoints() {
+	zsf.Invoke(func(jwtHelper *JWTHelper, groupManager *GroupManager, router *gin.RouterGroup) {
 		endpoints := NewAuthEndpoints(jwtHelper, groupManager)
 		endpoints.RegisterAuthEndpoints(router)
 	})
 }
 
 // RegisterRateLimiter registra um middleware de rate limiting para uma rota específica
-func (gf *GoFramework) RegisterRateLimiter(routerGroup *gin.RouterGroup, config RateLimiterConfig) {
+func (zsf *ZSFramework) RegisterRateLimiter(routerGroup *gin.RouterGroup, config RateLimiterConfig) {
 	routerGroup.Use(RateLimiterMiddleware(config))
 }
 
 // RegisterCSRFProtection registra o middleware de proteção CSRF
-func (gf *GoFramework) RegisterCSRFProtection(routerGroup *gin.RouterGroup) {
+func (zsf *ZSFramework) RegisterCSRFProtection(routerGroup *gin.RouterGroup) {
 	routerGroup.Use(CSRFMiddleware())
-	
+
 	// Adiciona um endpoint para obter um token CSRF
 	routerGroup.GET("/csrf-token", func(c *gin.Context) {
 		SetCSRFToken(c)

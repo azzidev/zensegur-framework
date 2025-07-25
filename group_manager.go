@@ -136,7 +136,7 @@ func (m *GroupManager) RemoveUserFromGroup(ctx context.Context, userID, groupID 
 }
 
 // RegisterGroupManager registra o gerenciador de grupos no framework
-func (zsf *GoFramework) RegisterGroupManager(
+func (zsf *ZSFramework) RegisterGroupManager(
 	groupRepo IRepository[Group],
 	mappingRepo IRepository[UserGroupMapping],
 ) {
