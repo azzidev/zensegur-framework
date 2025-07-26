@@ -260,6 +260,11 @@ func (zsf *ZSFramework) RegisterDbMongo(host string, user string, pass string, d
 
 // Redis
 func (zsf *ZSFramework) RegisterRedis(address string, password string, db string) {
+	zsf.RegisterRedisWithUser(address, "", password, db)
+}
+
+// RegisterRedisWithUser registers Redis with username support
+func (zsf *ZSFramework) RegisterRedisWithUser(address string, username string, password string, db string) {
 
 	dbInt, err := strconv.Atoi(db)
 	if err != nil {
@@ -268,6 +273,7 @@ func (zsf *ZSFramework) RegisterRedis(address string, password string, db string
 
 	opts := &redis.Options{
 		Addr:     address,
+		Username: username,
 		Password: password,
 		DB:       dbInt,
 	}

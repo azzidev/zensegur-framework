@@ -22,7 +22,7 @@ Core framework for ZenSegur applications with MongoDB integration, Google Pub/Su
 
 - [Installation](#installation)
 - [Core Components](#core-components)
-  - [ZSFramework](#ZSFramework)
+  - [ZSFramework](#zsframework)
   - [MongoDB Repository](#mongodb-repository)
   - [Google Pub/Sub](#google-pub-sub)
   - [Authentication & Authorization](#authentication--authorization)
