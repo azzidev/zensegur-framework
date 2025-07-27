@@ -6,6 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/spf13/viper"
+	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/time/rate"
 )
 
@@ -235,6 +237,20 @@ func RateLimiterMiddleware(config RateLimiterConfig) gin.HandlerFunc {
 
 // RegisterAuthEndpoints registra os endpoints de autenticação no framework
 func (zsf *ZSFramework) RegisterAuthEndpoints() {
+	// Criar repositórios padrão se não existirem
+	zsf.Invoke(func(db *mongo.Database, monitoring *Monitoring, v *viper.Viper) {
+		// Criar repositórios padrão para grupos
+		groupRepo := NewMongoDbRepository[Group](db, monitoring, v)
+		groupRepo.ChangeCollection("zsf_groups")
+		
+		mappingRepo := NewMongoDbRepository[UserGroupMapping](db, monitoring, v)
+		mappingRepo.ChangeCollection("zsf_user_group_mappings")
+		
+		// Registrar GroupManager com repositórios padrão
+		zsf.RegisterGroupManager(groupRepo, mappingRepo)
+	})
+	
+	// Agora registrar os endpoints
 	zsf.Invoke(func(jwtHelper *JWTHelper, groupManager *GroupManager, router *gin.RouterGroup) {
 		endpoints := NewAuthEndpoints(jwtHelper, groupManager)
 		endpoints.RegisterAuthEndpoints(router)
