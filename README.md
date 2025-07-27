@@ -470,6 +470,8 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 | `RegisterTokenBlacklist()` | Registers token blacklist with Redis |
 | `RegisterJWTKeyManager(initialKey, initialKid)` | Registers JWT key manager for rotation |
 | `RegisterAuditSignature(secretKey)` | Registers audit signature generator |
+| `RegisterRolesSignature(secretKey)` | Registers roles signature generator |
+| `RegisterUserRolesHelper()` | Registers user roles helper |
 | `RegisterRateLimiter(routerGroup, config)` | Registers rate limiting middleware |
 | `RegisterCSRFProtection(routerGroup)` | Registers CSRF protection middleware |
 | `ConfigureCORS(allowOrigins []string, allowCredentials bool)` | Configures CORS settings |
@@ -591,6 +593,28 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 | `GenerateOperationSignature(...)` | Generates signature for audit operation |
 | `VerifyOperationSignature(...)` | Verifies an audit operation signature |
 
+### Roles & Permissions Security
+
+| Method | Description |
+|--------|-------------|
+| `NewRolesSignature(secretKey)` | Creates a new roles signature generator |
+| `GenerateRolesSignature(userID, roles, timestamp)` | Generates signature for user roles |
+| `VerifyRolesSignature(userID, roles, timestamp, signature)` | Verifies roles signature |
+| `GeneratePermissionsSignature(userID, permissions, timestamp)` | Generates signature for user permissions |
+| `VerifyPermissionsSignature(userID, permissions, timestamp, signature)` | Verifies permissions signature |
+| `CreateSignedUserRoles(userID, roles, permissions, modifiedBy)` | Creates signed roles/permissions data |
+| `ValidateUserRoles(data)` | Validates both roles and permissions signatures |
+
+### User Roles Helper
+
+| Method | Description |
+|--------|-------------|
+| `NewUserRolesHelper(rolesSignature, groupManager)` | Creates a new user roles helper |
+| `GetUserRolesAndPermissions(ctx, userID, userRolesData)` | Gets validated roles and permissions for a user |
+| `UpdateUserRoles(userID, newRoles, modifiedBy)` | Updates user roles with new signature |
+| `UpdateUserPermissions(userID, newPermissions, modifiedBy)` | Updates user permissions with new signature |
+| `CreateJWTClaims(ctx, userID, userName, userEmail, tenantID, userRolesData)` | Creates JWT claims with validated roles/permissions |
+
 ### Security Features
 
 | Method | Description |
@@ -613,15 +637,20 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 The framework now supports a group-based permission system where permissions are fixed and defined by the system, but groups can be created with different combinations of permissions per tenant.
 
 ```go
-// Register repositories for groups and mappings
-framework.RegisterGroupRepository(NewGroupRepository)
-framework.RegisterUserGroupMappingRepository(NewUserGroupMappingRepository)
-
-// Register group manager
-framework.RegisterGroupManager()
-
-// Register auth endpoints
+// RegisterAuthEndpoints now creates repositories automatically!
+// Just call this - no need to register repositories manually
 framework.RegisterAuthEndpoints()
+
+// This automatically creates:
+// - zsf_groups collection with default repository
+// - zsf_user_group_mappings collection with default repository  
+// - GroupManager with the repositories
+// - Auth endpoints: /api/auth/check-role, /api/auth/check-permission, /api/auth/permissions
+
+// If you need custom repositories, register them BEFORE calling RegisterAuthEndpoints:
+// framework.RegisterGroupRepository(NewCustomGroupRepository)
+// framework.RegisterUserGroupMappingRepository(NewCustomMappingRepository)
+// framework.RegisterAuthEndpoints()
 
 // Example group repository implementation
 type GroupRepository struct {
@@ -641,7 +670,7 @@ type UserGroupMappingRepository struct {
 
 func NewUserGroupMappingRepository(db *mongo.Database, monitoring *zensframework.Monitoring, v *viper.Viper) *UserGroupMappingRepository {
     repo := zensframework.NewMongoDbRepository[zensframework.UserGroupMapping](db, monitoring, v)
-    repo.ChangeCollection("user_group_mappings")
+    repo.ChangeCollection("zsf_user_group_mappings")
     return &UserGroupMappingRepository{
         repo: repo,
     }
@@ -693,4 +722,34 @@ framework.Invoke(func(groupManager *zensframework.GroupManager) {
 // - propostas:editar-prazo
 // - users:criar-admin
 // - users:listar-todos
+
+// Secure Roles & Permissions System
+// Register roles signature system
+framework.RegisterRolesSignature("your-roles-secret-key")
+framework.RegisterUserRolesHelper()
+
+// Using secure roles system
+framework.Invoke(func(userRolesHelper *zensframework.UserRolesHelper) {
+    // Update user roles securely
+    userRolesData, err := userRolesHelper.UpdateUserRoles(
+        userID, 
+        []string{"ADMIN", "USER"}, 
+        "admin-user-id",
+    )
+    
+    // Create JWT claims with validated roles/permissions
+    claims, err := userRolesHelper.CreateJWTClaims(
+        ctx, userID, userName, userEmail, tenantID, userRolesData,
+    )
+    
+    // Generate JWT token
+    token, err := jwtHelper.GenerateToken(claims, time.Hour)
+})
+
+// Security Features:
+// - Roles: MASTER, ADMIN, USER, EXTERNAL (fixed list)
+// - Digital signatures prevent tampering in MongoDB
+// - Invalid signatures fallback to "USER" role
+// - Permissions combine direct + group permissions
+// - HMAC SHA256 with secret key only in code
 ```
