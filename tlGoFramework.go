@@ -363,6 +363,10 @@ func (zsf *ZSFramework) ConfigureCORS(allowOrigins []string, allowCredentials bo
 		zsf.corsConfig.AllowOrigins = allowOrigins
 	}
 	zsf.corsConfig.AllowCredentials = allowCredentials
+	zsf.corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"}
+	zsf.corsConfig.AllowHeaders = []string{"Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"}
+	zsf.corsConfig.ExposeHeaders = []string{"Content-Length"}
+	zsf.corsConfig.MaxAge = 12 * time.Hour
 }
 
 // CreateJWTMiddlewareConfig creates a configuration for JWT middleware
