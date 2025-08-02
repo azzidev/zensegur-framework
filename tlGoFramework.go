@@ -129,7 +129,8 @@ func NewZSFramework(opts ...ZSFrameworkOptions) *ZSFramework {
 	zsf.ioc.Provide(func() ZSfAgentTelemetry { return zsf.agentTelemetry })
 
 	zsf.ioc.Invoke(func(monitoring *Monitoring, v *viper.Viper) {
-		zsf.server.Use(corsconfig, AddTenant(monitoring, v))
+		zsf.server.Use(corsconfig)
+		zsf.server.Use(AddTenant(monitoring, v))
 	})
 
 	zsf.server.GET("/health", func(ctx *gin.Context) {
