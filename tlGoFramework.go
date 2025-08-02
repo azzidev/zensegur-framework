@@ -105,7 +105,7 @@ func NewZSFramework(opts ...ZSFrameworkOptions) *ZSFramework {
 
 	// Configuração CORS padrão
 	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowOrigins = []string{"https://zensegur.com.br", "https://*.zensegur.com.br"}
+	corsConfig.AllowOrigins = []string{"http://localhost:9000"}
 	corsConfig.AllowHeaders = []string{"Content-Type", "Authorization", "X-Requested-With"}
 	corsConfig.AllowCredentials = true
 
