@@ -287,12 +287,16 @@ func (zsf *ZSFramework) RegisterRedisWithUser(address string, username string, p
 
 	zsf.healthCheck = append(zsf.healthCheck, func() (string, bool) {
 		serviceName := "RDS"
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		
 		cli := newRedisClient(opts)
 		if cli == nil {
 			return serviceName, false
 		}
+		defer cli.Close()
 
-		if _, err := cli.Ping(context.Background()).Result(); err != nil {
+		if _, err := cli.Ping(ctx).Result(); err != nil {
 			return serviceName, false
 		}
 		return serviceName, true
@@ -320,21 +324,46 @@ func (zsf *ZSFramework) RegisterPubSub(projectID string, opts ...option.ClientOp
 		log.Panic(err)
 	}
 
-	// Add health check for PubSub
+	// Add health check for PubSub Publisher
 	zsf.healthCheck = append(zsf.healthCheck, func() (string, bool) {
-		serviceName := "PUBSUB"
+		serviceName := "GPSP"
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Simple connectivity check
+		// Test publisher connectivity
 		client, err := pubsub.NewClient(ctx, projectID, opts...)
 		if err != nil {
 			return serviceName, false
 		}
 		defer client.Close()
 
-		// If we can list topics, connection is working
-		_, err = client.Topics(ctx).Next()
+		// Try to get a topic (test publish capability)
+		topic := client.Topic("health-check-topic")
+		exists, err := topic.Exists(ctx)
+		if err != nil {
+			return serviceName, false
+		}
+		_ = exists // We don't care if topic exists, just that we can check
+
+		return serviceName, true
+	})
+
+	// Add health check for PubSub Subscriber
+	zsf.healthCheck = append(zsf.healthCheck, func() (string, bool) {
+		serviceName := "GPSS"
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		// Test subscriber connectivity
+		client, err := pubsub.NewClient(ctx, projectID, opts...)
+		if err != nil {
+			return serviceName, false
+		}
+		defer client.Close()
+
+		// Try to list subscriptions (test subscribe capability)
+		it := client.Subscriptions(ctx)
+		_, err = it.Next()
 		if err != nil && err != iterator.Done {
 			return serviceName, false
 		}
@@ -400,6 +429,13 @@ func (zsf *ZSFramework) RegisterAuditPublisher(serviceName string) {
 	if err != nil {
 		log.Panic(err)
 	}
+	
+	// Override the default repository provider to use audit publisher
+	zsf.ioc.Provide(func(db *mongo.Database, monitoring *Monitoring, v *viper.Viper, publisher AuditPublisher) func() IRepository[interface{}] {
+		return func() IRepository[interface{}] {
+			return NewMongoDbRepositoryWithAudit[interface{}](db, monitoring, v, publisher)
+		}
+	})
 }
 
 // RegisterRepositoryWithAudit registers a repository constructor that uses audit publisher

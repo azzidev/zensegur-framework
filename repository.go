@@ -43,38 +43,7 @@ func NewMongoDbRepository[T interface{}](
 	monitoring *Monitoring,
 	v *viper.Viper,
 ) IRepository[T] {
-	var r T
-	reg := regexp.MustCompile(`\[.*`)
-	coll := db.Collection(reg.ReplaceAllString(strings.ToLower(reflect.TypeOf(r).Name()), ""))
-
-	sourcename := v.GetString("pubsub.projectid")
-	if sourcename == "" {
-		sourcename = v.GetString("kafka.groupid")
-		if sourcename == "" {
-			sourcename, _ = os.Hostname()
-		}
-	}
-
-	// Create audit logger with publisher support
-	auditEnabled := v.GetBool("audit.enabled")
-	serviceName := v.GetString("service.name")
-	if serviceName == "" {
-		serviceName = "unknown-service"
-	}
-	
-	// Try to get audit publisher from DI container
-	var auditLogger *AuditLogger
-	// This will be injected by the framework if RegisterAuditPublisher was called
-	auditLogger = NewAuditLogger(db, auditEnabled) // Fallback to direct MongoDB
-
-	return &MongoDbRepository[T]{
-		db:         db,
-		collection: coll,
-		dataList:   &DataList[T]{},
-		monitoring: monitoring,
-		sourceName: sourcename,
-		auditLogger: auditLogger,
-	}
+	return NewMongoDbRepositoryWithAudit[T](db, monitoring, v, nil)
 }
 
 // NewMongoDbRepositoryWithAudit creates a repository with audit publisher support
