@@ -82,7 +82,7 @@ func (urh *UserRolesHelper) UpdateUserRoles(
 	modifiedBy string,
 ) (*UserRolesData, error) {
 	// Valida roles permitidas
-	allowedRoles := []string{"MASTER", "ADMIN", "USER", "EXTERNAL"}
+	allowedRoles := []string{"MASTER", "ADMIN", "USER", "EXTERNAL", "TENANT-OWNER"}
 	for _, role := range newRoles {
 		isAllowed := false
 		for _, allowed := range allowedRoles {
