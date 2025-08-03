@@ -20,7 +20,7 @@ const (
 	AuditActionSoftDelete AuditAction = "SOFT_DELETE"
 )
 
-// AuditEntry represents an audit log entry
+// AuditEntry represents an audit log entry for MongoDB
 type AuditEntry struct {
 	ID            uuid.UUID              `bson:"_id"`
 	CollectionName string                `bson:"collectionName"`
@@ -36,11 +36,48 @@ type AuditEntry struct {
 	CorrelationID string                `bson:"correlationId"`
 }
 
+// AuditEvent represents an audit event for PubSub
+type AuditEvent struct {
+	ID            uuid.UUID              `json:"id"`
+	ServiceName   string                 `json:"serviceName"`
+	CollectionName string                `json:"collectionName"`
+	Action        AuditAction           `json:"action"`
+	DocumentID    interface{}           `json:"documentId"`
+	TenantID      uuid.UUID             `json:"tenantId"`
+	Before        interface{}           `json:"before,omitempty"`
+	After         interface{}           `json:"after,omitempty"`
+	Changes       map[string]interface{} `json:"changes,omitempty"`
+	Author        string                `json:"author"`
+	AuthorID      string                `json:"authorId"`
+	Timestamp     time.Time             `json:"timestamp"`
+	CorrelationID string                `json:"correlationId"`
+}
+
+// AuditPublisher interface for publishing audit events
+type AuditPublisher interface {
+	PublishAuditEvent(ctx context.Context, event *AuditEvent) error
+}
+
+// PubSubAuditPublisher implements AuditPublisher using PubSub
+type PubSubAuditPublisher struct {
+	producer PubSubProducer[AuditEvent]
+}
+
+// PublishAuditEvent publishes an audit event to PubSub
+func (p *PubSubAuditPublisher) PublishAuditEvent(ctx context.Context, event *AuditEvent) error {
+	if p.producer == nil {
+		return nil
+	}
+	return p.producer.Publish(ctx, event)
+}
+
 // AuditLogger handles audit logging
 type AuditLogger struct {
-	db         *mongo.Database
-	collection *mongo.Collection
-	enabled    bool
+	db          *mongo.Database
+	collection  *mongo.Collection
+	enabled     bool
+	publisher   AuditPublisher
+	serviceName string
 }
 
 // NewAuditLogger creates a new audit logger
@@ -52,12 +89,31 @@ func NewAuditLogger(db *mongo.Database, enabled bool) *AuditLogger {
 	}
 }
 
+// NewAuditLoggerWithPublisher creates a new audit logger with PubSub publisher
+func NewAuditLoggerWithPublisher(db *mongo.Database, enabled bool, serviceName string, publisher AuditPublisher) *AuditLogger {
+	return &AuditLogger{
+		db:          db,
+		collection:  db.Collection("audit_logs"),
+		enabled:     enabled,
+		publisher:   publisher,
+		serviceName: serviceName,
+	}
+}
+
 // LogInsert logs an insert operation
 func (a *AuditLogger) LogInsert(ctx context.Context, collectionName string, documentID interface{}, document interface{}) error {
 	if !a.enabled {
 		return nil
 	}
 
+	// Use PubSub if available (async)
+	if a.publisher != nil {
+		event := a.createAuditEvent(ctx, collectionName, documentID, AuditActionInsert)
+		event.After = document
+		return a.publisher.PublishAuditEvent(ctx, event)
+	}
+
+	// Fallback to direct MongoDB (sync)
 	entry := a.createAuditEntry(ctx, collectionName, documentID, AuditActionInsert)
 	entry.After = document
 
@@ -71,16 +127,13 @@ func (a *AuditLogger) LogUpdate(ctx context.Context, collectionName string, docu
 		return nil
 	}
 
-	entry := a.createAuditEntry(ctx, collectionName, documentID, AuditActionUpdate)
-	entry.Before = before
-	entry.After = after
-	
 	// Calculate changes
+	var changes map[string]interface{}
 	beforeMap, ok1 := before.(map[string]interface{})
 	afterMap, ok2 := after.(map[string]interface{})
 	
 	if ok1 && ok2 {
-		changes := make(map[string]interface{})
+		changes = make(map[string]interface{})
 		for k, v := range afterMap {
 			if beforeVal, exists := beforeMap[k]; exists {
 				if fmt.Sprintf("%v", beforeVal) != fmt.Sprintf("%v", v) {
@@ -96,8 +149,22 @@ func (a *AuditLogger) LogUpdate(ctx context.Context, collectionName string, docu
 				}
 			}
 		}
-		entry.Changes = changes
 	}
+
+	// Use PubSub if available (async)
+	if a.publisher != nil {
+		event := a.createAuditEvent(ctx, collectionName, documentID, AuditActionUpdate)
+		event.Before = before
+		event.After = after
+		event.Changes = changes
+		return a.publisher.PublishAuditEvent(ctx, event)
+	}
+
+	// Fallback to direct MongoDB (sync)
+	entry := a.createAuditEntry(ctx, collectionName, documentID, AuditActionUpdate)
+	entry.Before = before
+	entry.After = after
+	entry.Changes = changes
 
 	_, err := a.collection.InsertOne(ctx, entry)
 	return err
@@ -114,6 +181,14 @@ func (a *AuditLogger) LogDelete(ctx context.Context, collectionName string, docu
 		action = AuditActionSoftDelete
 	}
 
+	// Use PubSub if available (async)
+	if a.publisher != nil {
+		event := a.createAuditEvent(ctx, collectionName, documentID, action)
+		event.Before = document
+		return a.publisher.PublishAuditEvent(ctx, event)
+	}
+
+	// Fallback to direct MongoDB (sync)
 	entry := a.createAuditEntry(ctx, collectionName, documentID, action)
 	entry.Before = document
 
@@ -142,6 +217,30 @@ func (a *AuditLogger) createAuditEntry(ctx context.Context, collectionName strin
 	}
 
 	return entry
+}
+
+// createAuditEvent creates a base audit event for PubSub with common fields
+func (a *AuditLogger) createAuditEvent(ctx context.Context, collectionName string, documentID interface{}, action AuditAction) *AuditEvent {
+	event := &AuditEvent{
+		ID:            uuid.New(),
+		ServiceName:   a.serviceName,
+		CollectionName: collectionName,
+		Action:        action,
+		DocumentID:    documentID,
+		Timestamp:     time.Now(),
+		CorrelationID: GetContextHeader(ctx, XCORRELATIONID),
+		Author:        GetContextHeader(ctx, XAUTHOR),
+		AuthorID:      GetContextHeader(ctx, XAUTHORID),
+	}
+
+	// Try to get tenant ID
+	if tenantId := GetContextHeader(ctx, XTENANTID, TTENANTID); tenantId != "" {
+		if tid, err := uuid.Parse(tenantId); err == nil {
+			event.TenantID = tid
+		}
+	}
+
+	return event
 }
 
 // CreateAuditIndexes creates indexes for the audit collection

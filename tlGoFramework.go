@@ -376,3 +376,36 @@ func (zsf *ZSFramework) CreateJWTMiddlewareConfig(publicPaths []string) *JWTMidd
 		PublicPaths: publicPaths,
 	}
 }
+
+// RegisterAuditPublisher registers audit publisher for PubSub
+func (zsf *ZSFramework) RegisterAuditPublisher(serviceName string) {
+	err := zsf.ioc.Provide(func(projectID string, opts []option.ClientOption) AuditPublisher {
+		if projectID == "" {
+			return nil // No PubSub configured, will use direct MongoDB
+		}
+		
+		topicName := fmt.Sprintf("audit-%s", serviceName)
+		producer, err := NewPubSubProducer[AuditEvent](
+			context.Background(),
+			projectID,
+			topicName,
+			opts...,
+		)
+		if err != nil {
+			return nil // Fallback to direct MongoDB on error
+		}
+		
+		return &PubSubAuditPublisher{producer: producer}
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+}
+
+// RegisterRepositoryWithAudit registers a repository constructor that uses audit publisher
+func (zsf *ZSFramework) RegisterRepositoryWithAudit(constructor interface{}) {
+	err := zsf.ioc.Provide(constructor)
+	if err != nil {
+		log.Panic(err)
+	}
+}
