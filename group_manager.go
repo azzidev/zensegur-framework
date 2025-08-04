@@ -37,8 +37,22 @@ func (m *GroupManager) GetUserGroups(ctx context.Context, userID uuid.UUID) ([]G
 	// Busca grupos
 	groups := make([]Group, 0, len(*mappings))
 	for _, mapping := range *mappings {
+		// Primeiro tenta buscar grupo no tenant atual
 		groupFilter := map[string]interface{}{"_id": mapping.GroupID, "active": true}
 		group := m.groupRepo.GetFirst(ctx, groupFilter)
+		
+		// Se não encontrou, tenta buscar grupo global (tenantId = uuid.Nil)
+		if group == nil {
+			// Usar contexto sem filtro de tenant para buscar grupos globais
+			globalCtx := context.WithValue(ctx, "bypass_tenant_filter", true)
+			globalFilter := map[string]interface{}{
+				"_id": mapping.GroupID, 
+				"active": true,
+				"tenantId": "00000000-0000-0000-0000-000000000000", // UUID nil
+			}
+			group = m.groupRepo.GetFirst(globalCtx, globalFilter)
+		}
+		
 		if group != nil {
 			groups = append(groups, *group)
 		}
