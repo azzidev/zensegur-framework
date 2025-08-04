@@ -704,6 +704,7 @@ framework.Invoke(func(groupManager *zensframework.GroupManager) {
 // {"allowed": true, "message": "User has all required roles"}
 
 // Example permissions response (GET /api/auth/permissions)
+// ✅ OTIMIZADO: Agora lê do JWT em vez de consultar o banco
 // {
 //   "roles": ["ADMIN", "USER"],
 //   "permissions": [
@@ -722,6 +723,12 @@ framework.Invoke(func(groupManager *zensframework.GroupManager) {
 // - propostas:editar-prazo
 // - users:criar-admin
 // - users:listar-todos
+
+// ✅ PERFORMANCE OPTIMIZATION:
+// - Permissions são buscadas dos grupos APENAS na geração do token
+// - Endpoints /api/auth/check-permission e /api/auth/permissions lêem do JWT
+// - Elimina consultas ao banco em cada verificação de permissão
+// - Mantém compatibilidade total com código existente
 
 // Secure Roles & Permissions System
 // Register roles signature system

@@ -47,7 +47,7 @@ func (urh *UserRolesHelper) GetUserRolesAndPermissions(
 		finalPermissions = userRolesData.Permissions
 	}
 
-	// Sempre adiciona permissions dos grupos (mesmo se roles/permissions diretas forem inválidas)
+	// ✅ SEMPRE busca permissions reais dos grupos para incluir no JWT
 	if urh.groupManager != nil {
 		groupPermissions, err := urh.groupManager.GetUserPermissions(ctx, userID)
 		if err == nil {
@@ -134,20 +134,20 @@ func (urh *UserRolesHelper) CreateJWTClaims(
 	tenantID uuid.UUID,
 	userRolesData *UserRolesData,
 ) (map[string]interface{}, error) {
-	// Obtém roles e permissions validadas
+	// ✅ Obtém roles e permissions validadas (incluindo permissions dos grupos)
 	roles, permissions, err := urh.GetUserRolesAndPermissions(ctx, userID, userRolesData)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cria claims JWT
+	// Cria claims JWT com TODAS as permissions (diretas + grupos)
 	claims := map[string]interface{}{
 		"sub":         userID.String(),
 		"name":        userName,
 		"email":       userEmail,
 		"tenant_id":   tenantID.String(),
 		"roles":       roles,
-		"permissions": permissions,
+		"permissions": permissions, // ✅ Inclui permissions dos grupos
 		"exp":         time.Now().Add(time.Hour).Unix(),
 		"iat":         time.Now().Unix(),
 	}

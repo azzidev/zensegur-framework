@@ -64,8 +64,8 @@ func (ae *AuthEndpoints) CheckPermission(c *gin.Context) {
 		return
 	}
 
-	// Get user ID
-	userID, exists := GetUserID(c)
+	// ✅ Lê permissions do JWT em vez do banco
+	userPerms, exists := c.Get("permissions")
 	if !exists {
 		c.JSON(http.StatusOK, CheckResponse{
 			Allowed: false,
@@ -74,14 +74,28 @@ func (ae *AuthEndpoints) CheckPermission(c *gin.Context) {
 		return
 	}
 
-	// Verifica permissões
-	allowed, err := ae.groupManager.CheckUserPermissions(c, userID, req.Permissions)
-	if err != nil {
+	userPermissions, ok := userPerms.([]string)
+	if !ok {
 		c.JSON(http.StatusOK, CheckResponse{
 			Allowed: false,
-			Message: "Authentication failed (3)", // Código 3: Erro ao verificar permissões
+			Message: "Authentication failed (3)", // Código 3: Formato de permissions inválido
 		})
 		return
+	}
+
+	// Converte para mapa para busca eficiente
+	permissionsMap := make(map[string]bool)
+	for _, perm := range userPermissions {
+		permissionsMap[perm] = true
+	}
+
+	// Verifica se o usuário tem todas as permissões requeridas
+	allowed := true
+	for _, requiredPerm := range req.Permissions {
+		if !permissionsMap[requiredPerm] {
+			allowed = false
+			break
+		}
 	}
 
 	response := CheckResponse{
@@ -99,25 +113,19 @@ func (ae *AuthEndpoints) CheckPermission(c *gin.Context) {
 
 // GetUserPermissions retorna todas as permissões e roles de um usuário
 func (ae *AuthEndpoints) GetUserPermissions(c *gin.Context) {
-	// Get user ID
-	userID, exists := GetUserID(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed (2)"}) // Código 2: Usuário não autenticado
-		return
-	}
-
-	// Get permissions from groups
-	permissions, err := ae.groupManager.GetUserPermissions(c, userID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Authentication failed (5)"}) // Código 5: Erro ao obter permissões
-		return
-	}
-
-	// Get roles from JWT claims
+	// ✅ Lê roles do JWT
 	roles := []string{}
 	if userRoles, exists := c.Get("roles"); exists {
 		if rolesList, ok := userRoles.([]string); ok {
 			roles = rolesList
+		}
+	}
+
+	// ✅ Lê permissions do JWT em vez do banco
+	permissions := []string{}
+	if userPerms, exists := c.Get("permissions"); exists {
+		if permsList, ok := userPerms.([]string); ok {
+			permissions = permsList
 		}
 	}
 
