@@ -88,6 +88,8 @@ func (h *JWTHelper) AuthMiddlewareWithConfig(config *JWTMiddlewareConfig, valida
 				}
 			}
 			c.Set("permissions", permStrings)
+		} else {
+			c.Set("permissions", []string{})
 		}
 
 		// Set author headers for audit

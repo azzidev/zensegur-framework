@@ -6,22 +6,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/spf13/viper"
-	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/time/rate"
 )
 
 // AuthEndpoints fornece endpoints para verificação de autenticação e permissões
 type AuthEndpoints struct {
-	jwtHelper    *JWTHelper
-	groupManager *GroupManager
+	jwtHelper *JWTHelper
 }
 
 // NewAuthEndpoints cria uma nova instância de AuthEndpoints
-func NewAuthEndpoints(jwtHelper *JWTHelper, groupManager *GroupManager) *AuthEndpoints {
+func NewAuthEndpoints(jwtHelper *JWTHelper) *AuthEndpoints {
 	return &AuthEndpoints{
-		jwtHelper:    jwtHelper,
-		groupManager: groupManager,
+		jwtHelper: jwtHelper,
 	}
 }
 
@@ -245,22 +241,8 @@ func RateLimiterMiddleware(config RateLimiterConfig) gin.HandlerFunc {
 
 // RegisterAuthEndpoints registra os endpoints de autenticação no framework
 func (zsf *ZSFramework) RegisterAuthEndpoints() {
-	// Criar repositórios padrão se não existirem
-	zsf.Invoke(func(db *mongo.Database, monitoring *Monitoring, v *viper.Viper) {
-		// Usar collections existentes do sistema
-		groupRepo := NewMongoDbRepository[Group](db, monitoring, v)
-		groupRepo.ChangeCollection("roles") // Collection real dos grupos
-		
-		mappingRepo := NewMongoDbRepository[UserGroupMapping](db, monitoring, v)
-		mappingRepo.ChangeCollection("user_group_mappings") // Collection real dos mapeamentos
-		
-		// Registrar GroupManager com repositórios padrão
-		zsf.RegisterGroupManager(groupRepo, mappingRepo)
-	})
-	
-	// Agora registrar os endpoints
-	zsf.Invoke(func(jwtHelper *JWTHelper, groupManager *GroupManager, router *gin.RouterGroup) {
-		endpoints := NewAuthEndpoints(jwtHelper, groupManager)
+	zsf.Invoke(func(jwtHelper *JWTHelper, router *gin.RouterGroup) {
+		endpoints := NewAuthEndpoints(jwtHelper)
 		endpoints.RegisterAuthEndpoints(router)
 	})
 }

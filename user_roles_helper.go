@@ -11,14 +11,12 @@ import (
 // UserRolesHelper gerencia roles e permissions de usuários com segurança
 type UserRolesHelper struct {
 	rolesSignature *RolesSignature
-	groupManager   *GroupManager
 }
 
 // NewUserRolesHelper cria um novo helper para roles de usuários
-func NewUserRolesHelper(rolesSignature *RolesSignature, groupManager *GroupManager) *UserRolesHelper {
+func NewUserRolesHelper(rolesSignature *RolesSignature) *UserRolesHelper {
 	return &UserRolesHelper{
 		rolesSignature: rolesSignature,
-		groupManager:   groupManager,
 	}
 }
 
@@ -46,6 +44,8 @@ func (urh *UserRolesHelper) GetUserRolesAndPermissions(
 	if permissionsValid {
 		finalPermissions = userRolesData.Permissions
 	}
+
+
 
 
 
@@ -134,8 +134,8 @@ func (urh *UserRolesHelper) CreateJWTClaims(
 
 // RegisterUserRolesHelper registra o helper no framework
 func (zsf *ZSFramework) RegisterUserRolesHelper() {
-	err := zsf.ioc.Provide(func(rolesSignature *RolesSignature, groupManager *GroupManager) *UserRolesHelper {
-		return NewUserRolesHelper(rolesSignature, groupManager)
+	err := zsf.ioc.Provide(func(rolesSignature *RolesSignature) *UserRolesHelper {
+		return NewUserRolesHelper(rolesSignature)
 	})
 	if err != nil {
 		panic(err)
