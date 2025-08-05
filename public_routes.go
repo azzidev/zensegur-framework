@@ -62,7 +62,7 @@ func (h *JWTHelper) AuthMiddlewareWithConfig(config *JWTMiddlewareConfig, valida
 		if email, ok := claims["email"].(string); ok {
 			c.Set("email", email)
 		}
-		if tenantID, ok := claims[TTENANTID].(string); ok {
+		if tenantID, ok := claims["tenant_id"].(string); ok {
 			c.Set("tenant_id", tenantID)
 			// Set tenant headers for downstream services
 			c.Request.Header.Set(XTENANTID, tenantID)

@@ -47,30 +47,7 @@ func (urh *UserRolesHelper) GetUserRolesAndPermissions(
 		finalPermissions = userRolesData.Permissions
 	}
 
-	// ✅ SEMPRE busca permissions reais dos grupos para incluir no JWT
-	if urh.groupManager != nil {
-		groupPermissions, err := urh.groupManager.GetUserPermissions(ctx, userID)
-		if err == nil {
-			// Combina permissions diretas com permissions dos grupos
-			permissionsMap := make(map[string]bool)
-			
-			// Adiciona permissions diretas (se válidas)
-			for _, perm := range finalPermissions {
-				permissionsMap[perm] = true
-			}
-			
-			// Adiciona permissions dos grupos
-			for _, perm := range groupPermissions {
-				permissionsMap[perm] = true
-			}
-			
-			// Converte de volta para slice
-			finalPermissions = make([]string, 0, len(permissionsMap))
-			for perm := range permissionsMap {
-				finalPermissions = append(finalPermissions, perm)
-			}
-		}
-	}
+
 
 	return finalRoles, finalPermissions, nil
 }

@@ -247,12 +247,12 @@ func RateLimiterMiddleware(config RateLimiterConfig) gin.HandlerFunc {
 func (zsf *ZSFramework) RegisterAuthEndpoints() {
 	// Criar repositórios padrão se não existirem
 	zsf.Invoke(func(db *mongo.Database, monitoring *Monitoring, v *viper.Viper) {
-		// Criar repositórios padrão para grupos
+		// Usar collections existentes do sistema
 		groupRepo := NewMongoDbRepository[Group](db, monitoring, v)
-		groupRepo.ChangeCollection("zsf_groups")
+		groupRepo.ChangeCollection("roles") // Collection real dos grupos
 		
 		mappingRepo := NewMongoDbRepository[UserGroupMapping](db, monitoring, v)
-		mappingRepo.ChangeCollection("zsf_user_group_mappings")
+		mappingRepo.ChangeCollection("user_group_mappings") // Collection real dos mapeamentos
 		
 		// Registrar GroupManager com repositórios padrão
 		zsf.RegisterGroupManager(groupRepo, mappingRepo)
