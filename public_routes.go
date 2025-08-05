@@ -80,17 +80,19 @@ func (h *JWTHelper) AuthMiddlewareWithConfig(config *JWTMiddlewareConfig, valida
 			c.Set("roles", roleStrings)
 		}
 
-		if permissions, ok := claims["permissions"].([]interface{}); ok {
-			permStrings := make([]string, len(permissions))
-			for i, p := range permissions {
+		// Extract permissions - sempre define no context
+	permissions := []string{}
+	if permsInterface, exists := claims["permissions"]; exists && permsInterface != nil {
+		if permsList, ok := permsInterface.([]interface{}); ok {
+			permissions = make([]string, len(permsList))
+			for i, p := range permsList {
 				if ps, ok := p.(string); ok {
-					permStrings[i] = ps
+					permissions[i] = ps
 				}
 			}
-			c.Set("permissions", permStrings)
-		} else {
-			c.Set("permissions", []string{})
 		}
+	}
+	c.Set("permissions", permissions)
 
 		// Set author headers for audit
 		if name, ok := claims["name"].(string); ok {

@@ -45,10 +45,6 @@ func (urh *UserRolesHelper) GetUserRolesAndPermissions(
 		finalPermissions = userRolesData.Permissions
 	}
 
-
-
-
-
 	return finalRoles, finalPermissions, nil
 }
 
@@ -95,10 +91,10 @@ func (urh *UserRolesHelper) UpdateUserPermissions(
 	permSignature := urh.rolesSignature.GeneratePermissionsSignature(userID, newPermissions, now)
 
 	return &UserRolesData{
-		UserID:        userID,
-		Permissions:   newPermissions,
-		PermSignature: permSignature,
-		PermTimestamp: now,
+		UserID:         userID,
+		Permissions:    newPermissions,
+		PermSignature:  permSignature,
+		PermTimestamp:  now,
 		LastModifiedBy: modifiedBy,
 	}, nil
 }
