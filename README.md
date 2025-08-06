@@ -1,24 +1,23 @@
 # ZenSegur Framework
 
-Core framework for ZenSegur applications with MongoDB integration, Google Pub/Sub messaging, and audit logging.
+Framework principal para aplicações ZenSegur com integração MongoDB, mensageria Google Pub/Sub e auditoria.
 
-## Features
+## Funcionalidades
 
-- MongoDB Repository Pattern
-- Google Pub/Sub Integration
-- MongoDB Audit Logging with Digital Signatures
-- Telemetry and Monitoring
-- Redis Cache Integration
-- JWT Authentication with Token Revocation
-- JWT Key Rotation Support (kid)
-- CSRF Protection with Double Submit Cookie
+- Padrão Repository para MongoDB
+- Integração Google Pub/Sub
+- Auditoria MongoDB com Assinaturas Digitais
+- Telemetria e Monitoramento
+- Integração Cache Redis
+- Autenticação JWT com Revogação de Tokens
+- Proteção CSRF com Double Submit Cookie
 - Rate Limiting
-- Role-based Access Control (RBAC)
-- Group-based Permission System
-- Multi-tenant Group Management
-- Token Blacklist with Redis
+- Controle de Acesso Baseado em Roles (RBAC)
+- Sistema de Permissões via JWT
+- Gerenciamento Multi-tenant
+- Blacklist de Tokens com Redis
 
-## Table of Contents
+## Índice
 
 - [Installation](#installation)
 - [Core Components](#core-components)
@@ -45,43 +44,46 @@ go get github.com/azzidev/zensegur-framework
 
 ### ZSFramework
 
-The main framework container that orchestrates all components.
+O container principal do framework que orquestra todos os componentes.
 
 ```go
-// Initialize the framework
+// Inicializar o framework
 framework := zensframework.NewZSFramework()
 
-// Configure CORS (default is already secure)
+// Configurar CORS (padrão já é seguro)
 framework.ConfigureCORS([]string{"https://zensegur.com.br", "https://*.zensegur.com.br"}, true)
 
-// Register MongoDB
+// Registrar MongoDB
 framework.RegisterDbMongo("mongodb://localhost:27017", "user", "password", "database", false)
 
-// Register PubSub
+// Registrar PubSub
 framework.RegisterPubSub("your-google-cloud-project-id")
 
-// Register Redis
+// Registrar Redis
 framework.RegisterRedis("localhost:6379", "", "0")
 
-// Register repositories
+// Registrar repositórios
 framework.RegisterRepository(NewUserRepository)
 
-// Register application services
+// Registrar serviços de aplicação
 framework.RegisterApplication(NewUserService)
 
-// Register controllers
+// Registrar controladores
 framework.RegisterController(NewUserController)
 
-// Start the server
+// Registrar endpoints de autenticação (apenas JWT decode)
+framework.RegisterAuthEndpoints()
+
+// Iniciar o servidor
 framework.Start()
 ```
 
 ### MongoDB Repository
 
-Generic repository pattern for MongoDB with built-in audit logging.
+Padrão de repositório genérico para MongoDB com auditoria integrada.
 
 ```go
-// Define your entity
+// Definir sua entidade
 type User struct {
     ID       uuid.UUID `bson:"_id"`
     Name     string    `bson:"name"`
@@ -89,54 +91,54 @@ type User struct {
     Active   bool      `bson:"active"`
 }
 
-// Create repository
+// Criar repositório
 repo := zensframework.NewMongoDbRepository[User](db, monitoring, viper)
 
-// Use repository methods
+// Usar métodos do repositório
 user := &User{
     ID:     uuid.New(),
-    Name:   "John Doe",
-    Email:  "john@example.com",
+    Name:   "João Silva",
+    Email:  "joao@exemplo.com",
     Active: true,
 }
 
-// Insert
+// Inserir
 err := repo.Insert(ctx, user)
 
-// Get by ID
+// Buscar por ID
 filter := map[string]interface{}{"_id": id}
 user := repo.GetFirst(ctx, filter)
 
-// Update
+// Atualizar
 err := repo.Update(ctx, filter, map[string]interface{}{
-    "name": "Jane Doe",
+    "name": "Maria Silva",
 })
 
-// Delete (soft delete)
+// Deletar (soft delete)
 err := repo.Delete(ctx, filter)
 ```
 
 ### Google Pub/Sub
 
-Messaging system using Google Pub/Sub.
+Sistema de mensageria usando Google Pub/Sub.
 
 ```go
-// Create a producer
+// Criar um produtor
 producer, err := zensframework.NewPubSubProducer[YourMessageType](
     ctx, 
     "your-google-cloud-project-id", 
     "your-topic-name",
 )
 if err != nil {
-    log.Fatalf("Failed to create producer: %v", err)
+    log.Fatalf("Falha ao criar produtor: %v", err)
 }
 defer producer.Close()
 
-// Publish a message
+// Publicar uma mensagem
 msg := &YourMessageType{...}
 err = producer.Publish(ctx, msg)
 
-// Create a consumer
+// Criar um consumidor
 messageHandler := func(ctx *zensframework.PubSubContext) {
     var msg YourMessageType
     err := json.Unmarshal(ctx.Msg.Data, &msg)
@@ -145,7 +147,7 @@ messageHandler := func(ctx *zensframework.PubSubContext) {
         return
     }
     
-    // Process the message
+    // Processar a mensagem
     // ...
 }
 
@@ -156,53 +158,69 @@ consumer, err := zensframework.NewPubSubConsumer(
     messageHandler,
 )
 if err != nil {
-    log.Fatalf("Failed to create consumer: %v", err)
+    log.Fatalf("Falha ao criar consumidor: %v", err)
 }
 defer consumer.Close()
 
-// Start consuming messages
+// Iniciar consumo de mensagens
 go consumer.HandleFn()
 ```
 
 ### Audit Logging with Signatures
 
-Automatic audit logging for MongoDB operations with digital signatures to prevent tampering.
+Auditoria automática para operações MongoDB com assinaturas digitais para prevenir adulteração.
 
 ```go
-// Register audit signature generator
+// Registrar gerador de assinatura de auditoria
 framework.RegisterAuditSignature("audit-secret-key")
 
-// Enable audit logging in your configuration
+// Habilitar auditoria na sua configuração
 v := viper.New()
 v.SetDefault("audit.enabled", true)
 
-// When creating your repository, audit logging is automatically enabled
+// Ao criar seu repositório, auditoria é habilitada automaticamente
 repo := zensframework.NewMongoDbRepository[YourEntity](db, monitoring, v)
 
-// All insert, update, and delete operations will be logged automatically with signatures
+// Todas as operações insert, update e delete serão logadas automaticamente com assinaturas
 
-// Manual signature verification
+// Verificação manual de assinatura
 framework.Invoke(func(auditSig *zensframework.AuditSignature) {
-    // Generate signature for operation
+    // Gerar assinatura para operação
     signature, err := auditSig.GenerateOperationSignature(
         "update", "users", "user-id", beforeData, afterData, "user-id", timestamp,
     )
     
-    // Verify signature
+    // Verificar assinatura
     isValid := auditSig.VerifyOperationSignature(
         "update", "users", "user-id", beforeData, afterData, "user-id", timestamp, signature,
     )
 })
 ```
 
-### JWT Authentication
+### Authentication & Authorization
 
-Utilities for JWT token generation, validation, and HttpOnly cookie management with enhanced security features.
+Sistema de autenticação JWT com gerenciamento de cookies HttpOnly e recursos de segurança avançados.
+
+#### Endpoints do Framework (Apenas JWT Decode)
+
+O framework fornece endpoints que leem apenas do JWT, sem consultas ao banco:
 
 ```go
-// Configure JWT helper
+// Registrar endpoints de autenticação
+framework.RegisterAuthEndpoints()
+
+// Endpoints disponíveis:
+// POST /api/auth/check-role - Verifica se usuário tem roles específicas
+// POST /api/auth/check-permission - Verifica se usuário tem permissões específicas  
+// GET /api/auth/permissions - Retorna roles e permissions do usuário
+```
+
+#### Configuração JWT
+
+```go
+// Configurar JWT helper
 config := &zensframework.JWTConfig{
-    Secret:         "your-secret-key",
+    Secret:         "sua-chave-secreta",
     AccessExpiry:   time.Hour,
     RefreshExpiry:  time.Hour * 24 * 7,
     CookieDomain:   "zensegur.com",
@@ -213,22 +231,22 @@ config := &zensframework.JWTConfig{
     BcryptCost:     14,               // Fator de custo para hashing de senhas
 }
 
-// Register JWT helper
+// Registrar JWT helper
 framework.RegisterJWTHelper(config)
 
-// Register CSRF protection
+// Registrar proteção CSRF
 framework.RegisterCSRFProtection(router)
 
-// Register Rate Limiter (5 requests per minute by default)
+// Registrar Rate Limiter (5 requisições por minuto por padrão)
 framework.RegisterRateLimiter(router, DefaultRateLimiterConfig())
 
-// Or with custom configuration
+// Ou com configuração customizada
 framework.RegisterRateLimiter(loginRouter, RateLimiterConfig{
     RequestsPerMinute: 3,  // 3 tentativas por minuto
     BurstSize:         3,
 })
 
-// Create middleware config with public paths
+// Criar configuração de middleware com paths públicos
 middlewareConfig := framework.CreateJWTMiddlewareConfig([]string{
     "/login",
     "/register",
@@ -236,46 +254,46 @@ middlewareConfig := framework.CreateJWTMiddlewareConfig([]string{
     "/health",
 })
 
-// In your controller setup
+// Na configuração do seu controller
 framework.Invoke(func(jwt *zensframework.JWTHelper, router *gin.RouterGroup) {
-    // Apply authentication middleware with configuration
+    // Aplicar middleware de autenticação com configuração
     router.Use(jwt.AuthMiddlewareWithConfig(middlewareConfig, validateClaims))
     
-    // Public routes (automatically skipped from auth)
+    // Rotas públicas (automaticamente ignoradas da autenticação)
     router.POST("/login", handleLogin(jwt))
     router.POST("/register", handleRegister(jwt))
     
-    // Routes requiring specific permissions
+    // Rotas que requerem permissões específicas
     admin := router.Group("/admin")
     admin.Use(jwt.RequirePermission("admin:access"))
     
-    // Routes requiring specific roles (any of the listed roles)
+    // Rotas que requerem roles específicas (qualquer uma das listadas)
     superAdmin := router.Group("/super-admin")
     superAdmin.Use(jwt.RequireRole("SUPER_ADMIN", "ADMIN"))
     
-    // Routes requiring all specified roles
+    // Rotas que requerem todas as roles especificadas
     restrictedAdmin := router.Group("/restricted-admin")
     restrictedAdmin.Use(jwt.RequireAllRoles("SUPER_ADMIN", "SECURITY_OFFICER"))
     
-    // Routes requiring all specified permissions
+    // Rotas que requerem todas as permissões especificadas
     secureOperations := router.Group("/secure-operations")
     secureOperations.Use(jwt.RequireAllPermissions("users:write", "users:delete"))
 })
 
-// Custom claims validation function
+// Função de validação de claims customizada
 func validateClaims(c *gin.Context, claims jwt.Claims) error {
-    // You can implement your own validation logic here
-    // For example, check if user has required permissions
+    // Você pode implementar sua própria lógica de validação aqui
+    // Por exemplo, verificar se o usuário tem permissões necessárias
     return nil
 }
 
-// Login handler example with HttpOnly cookies
+// Exemplo de handler de login com cookies HttpOnly
 func handleLogin(jwt *zensframework.JWTHelper) gin.HandlerFunc {
     return func(c *gin.Context) {
-        // Authenticate user (implementation depends on your auth service)
+        // Autenticar usuário (implementação depende do seu serviço de auth)
         // ...
         
-        // Create custom claims with roles and permissions
+        // Criar claims customizados com roles e permissões
         claims := jwt.MapClaims{
             "sub":         userId,
             "name":        userName,
@@ -286,7 +304,7 @@ func handleLogin(jwt *zensframework.JWTHelper) gin.HandlerFunc {
             "exp":         time.Now().Add(time.Hour).Unix(),
         }
         
-        // Generate tokens
+        // Gerar tokens
         accessToken, err := jwt.GenerateToken(claims, time.Hour)
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -300,10 +318,10 @@ func handleLogin(jwt *zensframework.JWTHelper) gin.HandlerFunc {
         }
         refreshToken, _ := jwt.GenerateToken(refreshClaims, time.Hour * 24 * 7)
         
-        // Set HttpOnly cookies
+        // Definir cookies HttpOnly
         jwt.SetAuthCookies(c, accessToken, refreshToken)
         
-        // Return success response (without exposing tokens)
+        // Retornar resposta de sucesso (sem expor tokens)
         c.JSON(http.StatusOK, gin.H{
             "success": true,
             "user": gin.H{
@@ -314,101 +332,101 @@ func handleLogin(jwt *zensframework.JWTHelper) gin.HandlerFunc {
     }
 }
 
-// Password utilities
+// Utilitários de senha
 hashedPassword, _ := zensframework.HashPassword("user-password")
 isValid := zensframework.CheckPassword("user-password", hashedPassword)
 ```
 
 ### Token Blacklist & Revocation
 
-Redis-based token blacklist for secure token revocation.
+Blacklist de tokens baseado em Redis para revogação segura de tokens.
 
 ```go
-// Register token blacklist
+// Registrar blacklist de tokens
 framework.RegisterTokenBlacklist()
 
-// Using token blacklist
+// Usando blacklist de tokens
 framework.Invoke(func(blacklist *zensframework.TokenBlacklist) {
-    // Revoke a specific token
+    // Revogar um token específico
     err := blacklist.RevokeToken(ctx, tokenString)
     
-    // Check if token is revoked
+    // Verificar se token foi revogado
     isRevoked, err := blacklist.IsTokenRevoked(ctx, tokenString)
     
-    // Revoke all tokens for a user
+    // Revogar todos os tokens de um usuário
     err := blacklist.RevokeAllUserTokens(ctx, userID)
     
-    // Check if user tokens are revoked
+    // Verificar se tokens do usuário foram revogados
     isRevoked, err := blacklist.IsUserTokensRevoked(ctx, userID, tokenIssuedAt)
 })
 ```
 
 ### JWT Key Rotation
 
-Support for multiple JWT keys with rotation capabilities.
+Suporte para múltiplas chaves JWT com capacidades de rotação.
 
 ```go
-// Register JWT key manager
-framework.RegisterJWTKeyManager("initial-secret", "key-001")
+// Registrar gerenciador de chaves JWT
+framework.RegisterJWTKeyManager("chave-inicial", "key-001")
 
-// Using key rotation
+// Usando rotação de chaves
 framework.Invoke(func(keyManager *zensframework.JWTKeyManager) {
-    // Add new key
-    keyManager.AddKey("key-002", "new-secret-key")
+    // Adicionar nova chave
+    keyManager.AddKey("key-002", "nova-chave-secreta")
     
-    // Set current key for new tokens
+    // Definir chave atual para novos tokens
     err := keyManager.SetCurrentKey("key-002")
     
-    // Remove old key (cannot remove current key)
+    // Remover chave antiga (não pode remover chave atual)
     err := keyManager.RemoveKey("key-001")
 })
 
-// Using JWT helper with rotation
+// Usando JWT helper com rotação
 framework.Invoke(func(jwtHelper *zensframework.JWTHelperWithRotation) {
-    // Generate token with current key
+    // Gerar token com chave atual
     token, err := jwtHelper.GenerateTokenWithRotation(claims, expiry)
     
-    // Validate token (automatically uses correct key based on kid)
+    // Validar token (usa automaticamente a chave correta baseada no kid)
     err := jwtHelper.ValidateTokenWithRotation(tokenString, claims)
 })
 ```
 
 ### CSRF Protection
 
-Double Submit Cookie CSRF protection.
+Proteção CSRF com Double Submit Cookie.
 
 ```go
-// Register CSRF protection
+// Registrar proteção CSRF
 framework.RegisterCSRFProtection(router)
 
-// Get CSRF token endpoint (automatically registered)
+// Endpoint para obter token CSRF (registrado automaticamente)
 // GET /csrf-token
 // Response: {"token": "csrf-token-value"}
 
-// Client usage:
-// 1. Get CSRF token from /csrf-token endpoint
-// 2. Include token in X-CSRF-Token header for non-safe methods
-// 3. Token is also set as cookie automatically
+// Uso no cliente:
+// 1. Obter token CSRF do endpoint /csrf-token
+// 2. Incluir token no header X-CSRF-Token para métodos não seguros
+// 3. Token também é definido como cookie automaticamente
 
-// Manual CSRF token generation
+// Geração manual de token CSRF
 framework.Invoke(func(c *gin.Context) {
-    // Set CSRF token for current session
+    // Definir token CSRF para sessão atual
     zensframework.SetCSRFToken(c)
     
-    // Generate new token
+    // Gerar novo token
     token := zensframework.GenerateCSRFToken()
 })
 ```
 
 ### Redis Cache
 
-Redis cache integration for high-performance caching.
+Integração Redis cache para cache de alta performance.
 
 ```go
-// Register Redis in the framework
+// Registrar Redis no framework
 framework.RegisterRedis("localhost:6379", "", "0")
 
-// Create a cache implementation
+// Criar implementação de cache
 type RedisCache struct {
     client *redis.Client
 }
@@ -417,27 +435,27 @@ func NewRedisCache(client *redis.Client) zensframework.ICache {
     return &RedisCache{client: client}
 }
 
-// Implement cache methods
+// Implementar métodos de cache
 func (c *RedisCache) Get(key string, value interface{}) error {
-    // Implementation
+    // Implementação
 }
 
 func (c *RedisCache) Set(key string, value interface{}, expiration time.Duration) error {
-    // Implementation
+    // Implementação
 }
 
-// Register the cache
+// Registrar o cache
 framework.RegisterCache(NewRedisCache)
 ```
 
 ### Telemetry
 
-Built-in telemetry and monitoring.
+Telemetria e monitoramento integrados.
 
 ```go
-// Monitoring is automatically provided by the framework
+// Monitoramento é fornecido automaticamente pelo framework
 framework.Invoke(func(monitoring *zensframework.Monitoring) {
-    // Use monitoring
+    // Usar monitoramento
     correlation := uuid.New()
     mt := monitoring.Start(correlation, "service-name", zensframework.TracingTypeRepository)
     mt.AddContent(data)
@@ -450,209 +468,213 @@ framework.Invoke(func(monitoring *zensframework.Monitoring) {
 
 ### ZSFramework
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewZSFramework(opts ...ZSFrameworkOptions)` | Creates a new framework instance |
-| `RegisterDbMongo(host, user, pass, database string, normalize bool)` | Registers MongoDB connection |
-| `RegisterPubSub(projectID string, opts ...option.ClientOption)` | Registers Google Pub/Sub client |
-| `RegisterRedis(address, password, db string)` | Registers Redis connection |
-| `RegisterRepository(constructor interface{})` | Registers a repository |
-| `RegisterApplication(application interface{})` | Registers an application service |
-| `RegisterController(controller interface{})` | Registers a controller |
-| `RegisterCache(constructor interface{})` | Registers a cache implementation |
-| `RegisterPubSubProducer(producer interface{})` | Registers a PubSub producer |
-| `RegisterPubSubConsumer(consumer interface{})` | Registers a PubSub consumer |
-| `RegisterJWTHelper(config *JWTConfig)` | Registers the JWT helper |
-| `RegisterGroupRepository(constructor interface{})` | Registers a repository for groups |
-| `RegisterUserGroupMappingRepository(constructor interface{})` | Registers a repository for user-group mappings |
-| `RegisterGroupManager()` | Registers the group manager |
-| `RegisterAuthEndpoints()` | Registers authentication endpoints |
-| `RegisterTokenBlacklist()` | Registers token blacklist with Redis |
-| `RegisterJWTKeyManager(initialKey, initialKid)` | Registers JWT key manager for rotation |
-| `RegisterAuditSignature(secretKey)` | Registers audit signature generator |
-| `RegisterRolesSignature(secretKey)` | Registers roles signature generator |
-| `RegisterUserRolesHelper()` | Registers user roles helper |
-| `RegisterRateLimiter(routerGroup, config)` | Registers rate limiting middleware |
-| `RegisterCSRFProtection(routerGroup)` | Registers CSRF protection middleware |
-| `ConfigureCORS(allowOrigins []string, allowCredentials bool)` | Configures CORS settings |
-| `CreateJWTMiddlewareConfig(publicPaths []string)` | Creates a configuration for JWT middleware with public paths |
-| `Start()` | Starts the HTTP server |
-| `Invoke(function interface{})` | Invokes a function with dependency injection |
-| `GetConfig(key string)` | Gets a configuration value |
+| `NewZSFramework(opts ...ZSFrameworkOptions)` | Cria uma nova instância do framework |
+| `RegisterDbMongo(host, user, pass, database string, normalize bool)` | Registra conexão MongoDB |
+| `RegisterPubSub(projectID string, opts ...option.ClientOption)` | Registra cliente Google Pub/Sub |
+| `RegisterRedis(address, password, db string)` | Registra conexão Redis |
+| `RegisterRepository(constructor interface{})` | Registra um repositório |
+| `RegisterApplication(application interface{})` | Registra um serviço de aplicação |
+| `RegisterController(controller interface{})` | Registra um controlador |
+| `RegisterCache(constructor interface{})` | Registra implementação de cache |
+| `RegisterPubSubProducer(producer interface{})` | Registra um produtor PubSub |
+| `RegisterPubSubConsumer(consumer interface{})` | Registra um consumidor PubSub |
+| `RegisterJWTHelper(config *JWTConfig)` | Registra o helper JWT |
+| `RegisterAuthEndpoints()` | Registra endpoints de autenticação (JWT decode apenas) |
+| `RegisterTokenBlacklist()` | Registra blacklist de tokens com Redis |
+| `RegisterJWTKeyManager(initialKey, initialKid)` | Registra gerenciador de chaves JWT para rotação |
+| `RegisterAuditSignature(secretKey)` | Registra gerador de assinatura de auditoria |
+| `RegisterRolesSignature(secretKey)` | Registra gerador de assinatura de roles |
+| `RegisterUserRolesHelper()` | Registra helper de roles de usuário |
+| `RegisterRateLimiter(routerGroup, config)` | Registra middleware de rate limiting |
+| `RegisterCSRFProtection(routerGroup)` | Registra middleware de proteção CSRF |
+| `ConfigureCORS(allowOrigins []string, allowCredentials bool)` | Configura settings de CORS |
+| `CreateJWTMiddlewareConfig(publicPaths []string)` | Cria configuração para middleware JWT com paths públicos |
+| `Start()` | Inicia o servidor HTTP |
+| `Invoke(function interface{})` | Invoca uma função com injeção de dependência |
+| `GetConfig(key string)` | Obtém um valor de configuração |
 
 ### MongoDB Repository
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewMongoDbRepository[T](db, monitoring, viper)` | Creates a new repository for type T |
-| `ChangeCollection(collectionName string)` | Changes the collection name |
-| `GetAll(ctx, filter, ...options)` | Gets all documents matching the filter |
-| `GetAllSkipTake(ctx, filter, skip, take, ...options)` | Gets paginated documents |
-| `GetFirst(ctx, filter)` | Gets the first document matching the filter |
-| `Insert(ctx, entity)` | Inserts a new document |
-| `InsertAll(ctx, entities)` | Inserts multiple documents |
-| `Replace(ctx, filter, entity)` | Replaces a document |
-| `Update(ctx, filter, fields)` | Updates document fields |
-| `Delete(ctx, filter)` | Soft deletes a document |
-| `DeleteMany(ctx, filter)` | Soft deletes multiple documents |
-| `DeleteForce(ctx, filter)` | Hard deletes a document |
-| `DeleteManyForce(ctx, filter)` | Hard deletes multiple documents |
-| `Aggregate(ctx, pipeline)` | Performs an aggregation |
-| `Count(ctx, filter, ...options)` | Counts documents matching the filter |
-| `SetExpiredAfterInsert(ctx, seconds)` | Sets TTL index for documents |
+| `NewMongoDbRepository[T](db, monitoring, viper)` | Cria um novo repositório para o tipo T |
+| `ChangeCollection(collectionName string)` | Altera o nome da coleção |
+| `GetAll(ctx, filter, ...options)` | Obtém todos os documentos que correspondem ao filtro |
+| `GetAllSkipTake(ctx, filter, skip, take, ...options)` | Obtém documentos paginados |
+| `GetFirst(ctx, filter)` | Obtém o primeiro documento que corresponde ao filtro |
+| `Insert(ctx, entity)` | Insere um novo documento |
+| `InsertAll(ctx, entities)` | Insere múltiplos documentos |
+| `Replace(ctx, filter, entity)` | Substitui um documento |
+| `Update(ctx, filter, fields)` | Atualiza campos do documento |
+| `Delete(ctx, filter)` | Deleta um documento (soft delete) |
+| `DeleteMany(ctx, filter)` | Deleta múltiplos documentos (soft delete) |
+| `DeleteForce(ctx, filter)` | Deleta um documento (hard delete) |
+| `DeleteManyForce(ctx, filter)` | Deleta múltiplos documentos (hard delete) |
+| `Aggregate(ctx, pipeline)` | Executa uma agregação |
+| `Count(ctx, filter, ...options)` | Conta documentos que correspondem ao filtro |
+| `SetExpiredAfterInsert(ctx, seconds)` | Define índice TTL para documentos |
 
 ### Google Pub/Sub
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewPubSubProducer[T](ctx, projectID, topicName, ...options)` | Creates a new producer |
-| `Publish(ctx, msgs)` | Publishes messages |
-| `PublishWithAttributes(ctx, attributes, msgs)` | Publishes messages with attributes |
-| `Close()` | Closes the producer |
-| `NewPubSubConsumer(ctx, projectID, subscriptionID, handlerFunc, ...options)` | Creates a new consumer |
-| `HandleFn()` | Starts consuming messages |
-| `Close()` | Closes the consumer |
+| `NewPubSubProducer[T](ctx, projectID, topicName, ...options)` | Cria um novo produtor |
+| `Publish(ctx, msgs)` | Publica mensagens |
+| `PublishWithAttributes(ctx, attributes, msgs)` | Publica mensagens com atributos |
+| `Close()` | Fecha o produtor |
+| `NewPubSubConsumer(ctx, projectID, subscriptionID, handlerFunc, ...options)` | Cria um novo consumidor |
+| `HandleFn()` | Inicia o consumo de mensagens |
+| `Close()` | Fecha o consumidor |
 
 ### Audit Logger
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewAuditLogger(db, enabled)` | Creates a new audit logger |
-| `LogInsert(ctx, collectionName, documentID, document)` | Logs an insert operation |
-| `LogUpdate(ctx, collectionName, documentID, before, after)` | Logs an update operation |
-| `LogDelete(ctx, collectionName, documentID, document, isSoftDelete)` | Logs a delete operation |
-| `CreateAuditIndexes(ctx)` | Creates indexes for the audit collection |
+| `NewAuditLogger(db, enabled)` | Cria um novo logger de auditoria |
+| `LogInsert(ctx, collectionName, documentID, document)` | Loga uma operação de inserção |
+| `LogUpdate(ctx, collectionName, documentID, before, after)` | Loga uma operação de atualização |
+| `LogDelete(ctx, collectionName, documentID, document, isSoftDelete)` | Loga uma operação de deleção |
+| `CreateAuditIndexes(ctx)` | Cria índices para a coleção de auditoria |
 
 ### Monitoring
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewMonitoring(v)` | Creates a new monitoring instance |
-| `Start(correlation, sourceName, tracingType)` | Starts a monitoring trace |
-| `AddContent(content)` | Adds content to the trace |
-| `AddStack(skip, message)` | Adds stack information |
-| `End()` | Ends the trace |
+| `NewMonitoring(v)` | Cria uma nova instância de monitoramento |
+| `Start(correlation, sourceName, tracingType)` | Inicia um trace de monitoramento |
+| `AddContent(content)` | Adiciona conteúdo ao trace |
+| `AddStack(skip, message)` | Adiciona informações de stack |
+| `End()` | Finaliza o trace |
 
 ### Context Helpers
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `GetContextHeader(ctx, keys...)` | Gets a header from the context |
-| `ToContext(ctx)` | Converts to a standard context |
-| `GetTenantByToken(ctx)` | Extracts tenant ID from JWT token |
-| `helperContextHeaders(ctx, addfilter)` | Helper for context headers |
+| `GetContextHeader(ctx, keys...)` | Obtém um header do contexto |
+| `ToContext(ctx)` | Converte para um contexto padrão |
+| `GetTenantByToken(ctx)` | Extrai tenant ID do token JWT |
+| `helperContextHeaders(ctx, addfilter)` | Helper para headers de contexto |
 
 ### JWT Authentication
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewJWTHelper(config)` | Creates a new JWT helper |
-| `HashPassword(password)` | Creates a bcrypt hash from a password |
-| `HashPasswordWithCost(password, cost)` | Creates a bcrypt hash with custom cost factor |
-| `CheckPassword(password, hash)` | Compares a password with a hash |
-| `GenerateToken(claims, expiry)` | Generates a JWT token with the given claims |
-| `ValidateToken(tokenString, claims)` | Validates a JWT token and returns the claims |
-| `SetAuthCookies(c, accessToken, refreshToken)` | Sets authentication cookies |
-| `ClearAuthCookies(c)` | Clears authentication cookies |
-| `GetTokenFromRequest(c)` | Extracts token from request |
-| `AuthMiddleware(validateFunc)` | Creates a middleware for JWT authentication |
-| `AuthMiddlewareWithConfig(config, validateFunc)` | Creates a middleware for JWT authentication with configuration |
-| `RequirePermission(permissions...)` | Creates a middleware that requires specific permissions |
-| `RequireRole(roles...)` | Creates a middleware that requires specific roles |
-| `RequireAllRoles(roles...)` | Creates a middleware that requires all specified roles |
-| `RequireAllPermissions(permissions...)` | Creates a middleware that requires all specified permissions |
+| `NewJWTHelper(config)` | Cria um novo helper JWT |
+| `HashPassword(password)` | Cria um hash bcrypt de uma senha |
+| `HashPasswordWithCost(password, cost)` | Cria um hash bcrypt com fator de custo customizado |
+| `CheckPassword(password, hash)` | Compara uma senha com um hash |
+| `GenerateToken(claims, expiry)` | Gera um token JWT com os claims fornecidos |
+| `ValidateToken(tokenString, claims)` | Valida um token JWT e retorna os claims |
+| `SetAuthCookies(c, accessToken, refreshToken)` | Define cookies de autenticação |
+| `ClearAuthCookies(c)` | Limpa cookies de autenticação |
+| `GetTokenFromRequest(c)` | Extrai token da requisição |
+| `AuthMiddleware(validateFunc)` | Cria um middleware para autenticação JWT |
+| `AuthMiddlewareWithConfig(config, validateFunc)` | Cria um middleware para autenticação JWT com configuração |
+| `RequirePermission(permissions...)` | Cria um middleware que requer permissões específicas |
+| `RequireRole(roles...)` | Cria um middleware que requer roles específicas |
+| `RequireAllRoles(roles...)` | Cria um middleware que requer todas as roles especificadas |
+| `RequireAllPermissions(permissions...)` | Cria um middleware que requer todas as permissões especificadas |
 
 ### Token Blacklist
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewTokenBlacklist(redisClient)` | Creates a new token blacklist |
-| `RevokeToken(ctx, tokenString)` | Revokes a specific token |
-| `IsTokenRevoked(ctx, tokenString)` | Checks if a token is revoked |
-| `RevokeAllUserTokens(ctx, userID)` | Revokes all tokens for a user |
-| `IsUserTokensRevoked(ctx, userID, tokenIssuedAt)` | Checks if user tokens are revoked |
+| `NewTokenBlacklist(redisClient)` | Cria uma nova blacklist de tokens |
+| `RevokeToken(ctx, tokenString)` | Revoga um token específico |
+| `IsTokenRevoked(ctx, tokenString)` | Verifica se um token foi revogado |
+| `RevokeAllUserTokens(ctx, userID)` | Revoga todos os tokens de um usuário |
+| `IsUserTokensRevoked(ctx, userID, tokenIssuedAt)` | Verifica se tokens do usuário foram revogados |
 
 ### JWT Key Rotation
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewJWTKeyManager(initialKey, initialKid)` | Creates a new key manager |
-| `AddKey(kid, secret)` | Adds a new key |
-| `SetCurrentKey(kid)` | Sets the current key for new tokens |
-| `GetCurrentKey()` | Returns the current key |
-| `GetKey(kid)` | Returns a specific key |
-| `RemoveKey(kid)` | Removes a key (except current) |
-| `GenerateTokenWithRotation(claims, expiry)` | Generates token with current key |
-| `ValidateTokenWithRotation(tokenString, claims)` | Validates token with appropriate key |
+| `NewJWTKeyManager(initialKey, initialKid)` | Cria um novo gerenciador de chaves |
+| `AddKey(kid, secret)` | Adiciona uma nova chave |
+| `SetCurrentKey(kid)` | Define a chave atual para novos tokens |
+| `GetCurrentKey()` | Retorna a chave atual |
+| `GetKey(kid)` | Retorna uma chave específica |
+| `RemoveKey(kid)` | Remove uma chave (exceto a atual) |
+| `GenerateTokenWithRotation(claims, expiry)` | Gera token com chave atual |
+| `ValidateTokenWithRotation(tokenString, claims)` | Valida token com chave apropriada |
 
 ### Audit Signatures
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewAuditSignature(secretKey)` | Creates a new audit signature generator |
-| `GenerateOperationSignature(...)` | Generates signature for audit operation |
-| `VerifyOperationSignature(...)` | Verifies an audit operation signature |
+| `NewAuditSignature(secretKey)` | Cria um novo gerador de assinatura de auditoria |
+| `GenerateOperationSignature(...)` | Gera assinatura para operação de auditoria |
+| `VerifyOperationSignature(...)` | Verifica uma assinatura de operação de auditoria |
 
 ### Roles & Permissions Security
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewRolesSignature(secretKey)` | Creates a new roles signature generator |
-| `GenerateRolesSignature(userID, roles, timestamp)` | Generates signature for user roles |
-| `VerifyRolesSignature(userID, roles, timestamp, signature)` | Verifies roles signature |
-| `GeneratePermissionsSignature(userID, permissions, timestamp)` | Generates signature for user permissions |
-| `VerifyPermissionsSignature(userID, permissions, timestamp, signature)` | Verifies permissions signature |
-| `CreateSignedUserRoles(userID, roles, permissions, modifiedBy)` | Creates signed roles/permissions data |
-| `ValidateUserRoles(data)` | Validates both roles and permissions signatures |
+| `NewRolesSignature(secretKey)` | Cria um novo gerador de assinatura de roles |
+| `GenerateRolesSignature(userID, roles, timestamp)` | Gera assinatura para roles de usuário |
+| `VerifyRolesSignature(userID, roles, timestamp, signature)` | Verifica assinatura de roles |
+| `GeneratePermissionsSignature(userID, permissions, timestamp)` | Gera assinatura para permissões de usuário |
+| `VerifyPermissionsSignature(userID, permissions, timestamp, signature)` | Verifica assinatura de permissões |
+| `CreateSignedUserRoles(userID, roles, permissions, modifiedBy)` | Cria dados de roles/permissões assinados |
+| `ValidateUserRoles(data)` | Valida assinaturas de roles e permissões |
 
 ### User Roles Helper
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `NewUserRolesHelper(rolesSignature, groupManager)` | Creates a new user roles helper |
-| `GetUserRolesAndPermissions(ctx, userID, userRolesData)` | Gets validated roles and permissions for a user |
-| `UpdateUserRoles(userID, newRoles, modifiedBy)` | Updates user roles with new signature |
-| `UpdateUserPermissions(userID, newPermissions, modifiedBy)` | Updates user permissions with new signature |
-| `CreateJWTClaims(ctx, userID, userName, userEmail, tenantID, userRolesData)` | Creates JWT claims with validated roles/permissions |
+| `NewUserRolesHelper(rolesSignature)` | Cria um novo helper de roles de usuário |
+| `GetUserRolesAndPermissions(ctx, userID, userRolesData)` | Obtém roles e permissões validadas para um usuário |
+| `UpdateUserRoles(userID, newRoles, modifiedBy)` | Atualiza roles de usuário com nova assinatura |
+| `UpdateUserPermissions(userID, newPermissions, modifiedBy)` | Atualiza permissões de usuário com nova assinatura |
+| `CreateJWTClaims(ctx, userID, userName, userEmail, tenantID, userRolesData)` | Cria claims JWT com roles/permissões validadas |
 
 ### Security Features
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `CSRFMiddleware()` | Creates a middleware for CSRF protection |
-| `SetCSRFToken(c)` | Sets a CSRF token for the current session |
-| `GenerateCSRFToken()` | Generates a new CSRF token |
-| `RateLimiterMiddleware(config)` | Creates a middleware for rate limiting |
-| `DefaultRateLimiterConfig()` | Returns default rate limiter configuration |
+| `CSRFMiddleware()` | Cria um middleware para proteção CSRF |
+| `SetCSRFToken(c)` | Define um token CSRF para a sessão atual |
+| `GenerateCSRFToken()` | Gera um novo token CSRF |
+| `RateLimiterMiddleware(config)` | Cria um middleware para rate limiting |
+| `DefaultRateLimiterConfig()` | Retorna configuração padrão do rate limiter |
 
 ### BSON Helpers
 
-| Method | Description |
+| Método | Descrição |
 |--------|-------------|
-| `MarshalWithRegistry(val)` | Marshals with custom registry |
-| `UnmarshalWithRegistry(data, val)` | Unmarshals with custom registry |
+| `MarshalWithRegistry(val)` | Marshals com registry customizado |
+| `UnmarshalWithRegistry(data, val)` | Unmarshals com registry customizado |
 
-### Group-based Permissions
+### Sistema de Permissões
 
-The framework now supports a group-based permission system where permissions are fixed and defined by the system, but groups can be created with different combinations of permissions per tenant.
+O framework implementa um sistema de permissões baseado em JWT onde:
+
+- **Roles**: MASTER, ADMIN, USER, EXTERNAL, TENANT-OWNER (lista fixa)
+- **Permissions**: Definidas por grupos e incluídas no JWT
+- **Segurança**: Assinaturas digitais previnem adulteração
+- **Performance**: Leitura apenas do JWT, zero consultas ao banco
 
 ```go
-// RegisterAuthEndpoints now creates repositories automatically!
-// Just call this - no need to register repositories manually
+// Registrar sistema de assinaturas para roles
+framework.RegisterRolesSignature("sua-chave-secreta-roles")
+framework.RegisterUserRolesHelper()
+
+// Registrar endpoints de autenticação (apenas JWT decode)
 framework.RegisterAuthEndpoints()
 
-// This automatically creates:
-// - zsf_groups collection with default repository
-// - zsf_user_group_mappings collection with default repository  
-// - GroupManager with the repositories
-// - Auth endpoints: /api/auth/check-role, /api/auth/check-permission, /api/auth/permissions
+// Endpoints disponíveis:
+// POST /api/auth/check-role - Verifica roles do JWT
+// POST /api/auth/check-permission - Verifica permissions do JWT
+// GET /api/auth/permissions - Retorna roles + permissions do JWT
 
-// If you need custom repositories, register them BEFORE calling RegisterAuthEndpoints:
+// Se você precisar de repositórios customizados, registre-os ANTES de chamar RegisterAuthEndpoints:
 // framework.RegisterGroupRepository(NewCustomGroupRepository)
 // framework.RegisterUserGroupMappingRepository(NewCustomMappingRepository)
 // framework.RegisterAuthEndpoints()
 
-// Example group repository implementation
+// Exemplo de implementação de repositório de grupo
 type GroupRepository struct {
     repo zensframework.IRepository[zensframework.Group]
 }
@@ -663,7 +685,7 @@ func NewGroupRepository(db *mongo.Database, monitoring *zensframework.Monitoring
     }
 }
 
-// Example user-group mapping repository implementation
+// Exemplo de implementação de repositório de mapeamento usuário-grupo
 type UserGroupMappingRepository struct {
     repo zensframework.IRepository[zensframework.UserGroupMapping]
 }
@@ -676,31 +698,31 @@ func NewUserGroupMappingRepository(db *mongo.Database, monitoring *zensframework
     }
 }
 
-// Using the group manager to check permissions
+// Usando o group manager para verificar permissões
 framework.Invoke(func(groupManager *zensframework.GroupManager) {
-    // Check if user has all required permissions
+    // Verificar se usuário tem todas as permissões requeridas
     allowed, err := groupManager.CheckUserPermissions(ctx, userID, []string{"users:read", "users:write"})
     
-    // Get all permissions for a user
+    // Obter todas as permissões de um usuário
     permissions, err := groupManager.GetUserPermissions(ctx, userID)
     
-    // Add user to a group
+    // Adicionar usuário a um grupo
     err := groupManager.AddUserToGroup(ctx, userID, groupID)
     
-    // Remove user from a group
+    // Remover usuário de um grupo
     err := groupManager.RemoveUserFromGroup(ctx, userID, groupID)
 })
 
-// Authentication endpoints for permission checking
-// POST /api/auth/check-role - Check if user has all specified roles
-// POST /api/auth/check-permission - Check if user has all specified permissions
-// GET /api/auth/permissions - Get all permissions for the current user
+// Endpoints de autenticação para verificação de permissões
+// POST /api/auth/check-role - Verificar se usuário tem todas as roles especificadas
+// POST /api/auth/check-permission - Verificar se usuário tem todas as permissões especificadas
+// GET /api/auth/permissions - Obter todas as permissões do usuário atual
 
-// Example request to check roles
+// Exemplo de requisição para verificar roles
 // POST /api/auth/check-role
 // {"roles": ["ADMIN", "MANAGER"]}
 
-// Example response
+// Exemplo de resposta
 // {"allowed": true, "message": "User has all required roles"}
 
 // Example permissions response (GET /api/auth/permissions)
@@ -715,8 +737,8 @@ framework.Invoke(func(groupManager *zensframework.GroupManager) {
 //   ]
 // }
 
-// Permission naming pattern: [domínio]:[ação]-[escopo]
-// Examples:
+// Padrão de nomenclatura de permissões: [domínio]:[ação]-[escopo]
+// Exemplos:
 // - propostas:ler-basico
 // - propostas:ler-valor  
 // - propostas:editar-valor
@@ -730,33 +752,33 @@ framework.Invoke(func(groupManager *zensframework.GroupManager) {
 // - Elimina consultas ao banco em cada verificação de permissão
 // - Mantém compatibilidade total com código existente
 
-// Secure Roles & Permissions System
-// Register roles signature system
+// Sistema Seguro de Roles & Permissões
+// Registrar sistema de assinaturas para roles
 framework.RegisterRolesSignature("your-roles-secret-key")
 framework.RegisterUserRolesHelper()
 
-// Using secure roles system
+// Usando sistema seguro de roles
 framework.Invoke(func(userRolesHelper *zensframework.UserRolesHelper) {
-    // Update user roles securely
+    // Atualizar roles de usuário com segurança
     userRolesData, err := userRolesHelper.UpdateUserRoles(
         userID, 
         []string{"ADMIN", "USER"}, 
         "admin-user-id",
     )
     
-    // Create JWT claims with validated roles/permissions
+    // Criar claims JWT com roles/permissões validadas
     claims, err := userRolesHelper.CreateJWTClaims(
         ctx, userID, userName, userEmail, tenantID, userRolesData,
     )
     
-    // Generate JWT token
+    // Gerar token JWT
     token, err := jwtHelper.GenerateToken(claims, time.Hour)
 })
 
-// Security Features:
-// - Roles: MASTER, ADMIN, USER, EXTERNAL (fixed list)
-// - Digital signatures prevent tampering in MongoDB
-// - Invalid signatures fallback to "USER" role
-// - Permissions combine direct + group permissions
-// - HMAC SHA256 with secret key only in code
+// Recursos de Segurança:
+// - Roles: MASTER, ADMIN, USER, EXTERNAL, TENANT-OWNER (lista fixa)
+// - Assinaturas digitais previnem adulteração no MongoDB
+// - Assinaturas inválidas fazem fallback para role "USER"
+// - Permissões combinam diretas + grupos
+// - HMAC SHA256 com chave secreta apenas no código
 ```
