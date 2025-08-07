@@ -33,7 +33,7 @@ type AuditEntry struct {
 	Author        string                `bson:"author"`
 	AuthorID      string                `bson:"authorId"`
 	Timestamp     time.Time             `bson:"timestamp"`
-	CorrelationID string                `bson:"correlationId"`
+	CorrelationID uuid.UUID             `bson:"correlationId"`
 }
 
 // AuditEvent represents an audit event for PubSub
@@ -50,7 +50,7 @@ type AuditEvent struct {
 	Author        string                `json:"author"`
 	AuthorID      string                `json:"authorId"`
 	Timestamp     time.Time             `json:"timestamp"`
-	CorrelationID string                `json:"correlationId"`
+	CorrelationID uuid.UUID             `json:"correlationId"`
 }
 
 // AuditPublisher interface for publishing audit events
@@ -196,6 +196,17 @@ func (a *AuditLogger) LogDelete(ctx context.Context, collectionName string, docu
 	return err
 }
 
+// parseCorrelationID converts string to UUID, generates new if invalid
+func parseCorrelationID(correlationStr string) uuid.UUID {
+	if correlationStr == "" {
+		return uuid.New()
+	}
+	if correlationID, err := uuid.Parse(correlationStr); err == nil {
+		return correlationID
+	}
+	return uuid.New()
+}
+
 // createAuditEntry creates a base audit entry with common fields
 func (a *AuditLogger) createAuditEntry(ctx context.Context, collectionName string, documentID interface{}, action AuditAction) *AuditEntry {
 	entry := &AuditEntry{
@@ -204,7 +215,7 @@ func (a *AuditLogger) createAuditEntry(ctx context.Context, collectionName strin
 		Action:        action,
 		DocumentID:    documentID,
 		Timestamp:     time.Now(),
-		CorrelationID: GetContextHeader(ctx, XCORRELATIONID),
+		CorrelationID: parseCorrelationID(GetContextHeader(ctx, XCORRELATIONID)),
 		Author:        GetContextHeader(ctx, XAUTHOR),
 		AuthorID:      GetContextHeader(ctx, XAUTHORID),
 	}
@@ -228,7 +239,7 @@ func (a *AuditLogger) createAuditEvent(ctx context.Context, collectionName strin
 		Action:        action,
 		DocumentID:    documentID,
 		Timestamp:     time.Now(),
-		CorrelationID: GetContextHeader(ctx, XCORRELATIONID),
+		CorrelationID: parseCorrelationID(GetContextHeader(ctx, XCORRELATIONID)),
 		Author:        GetContextHeader(ctx, XAUTHOR),
 		AuthorID:      GetContextHeader(ctx, XAUTHORID),
 	}

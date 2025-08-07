@@ -22,6 +22,7 @@ type (
 	TracingType string
 
 	Tracing struct {
+		ID            uuid.UUID   `bson:"_id" json:"_id"`
 		CreatedAt     time.Time   `bson:"createdat" json:"createdat"`
 		CorrelationId uuid.UUID   `bson:"correlationid" json:"correlationid"`
 		Source        string      `bson:"source" json:"source"`
@@ -78,6 +79,7 @@ func (m *Monitoring) Start(correlationid uuid.UUID,
 	return &TracingMonitor{
 		Monitor: m,
 		Trace: &Tracing{
+			ID:            uuid.New(),
 			CreatedAt:     time.Now(),
 			CorrelationId: correlationid,
 			TracingType:   tracingtype,
