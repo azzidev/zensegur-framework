@@ -279,9 +279,11 @@ func (zsf *ZSFramework) RegisterRedisWithUser(address string, username string, p
 		DB:       dbInt,
 	}
 
+	// Enable TLS for Redis Cloud (non-localhost connections)
 	if opts.Addr != "" && opts.Addr != "localhost:6379" {
 		opts.TLSConfig = &tls.Config{
-			InsecureSkipVerify: true,
+			ServerName:         strings.Split(opts.Addr, ":")[0], // Extract hostname
+			InsecureSkipVerify: false, // Verify certificates for security
 		}
 	}
 
