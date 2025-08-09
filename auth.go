@@ -158,9 +158,6 @@ func (h *JWTHelper) SetAuthCookies(c *gin.Context, accessToken, refreshToken str
 		h.config.CookieSecure,
 		h.config.CookieHTTPOnly,
 	)
-
-	// Set SameSite policy
-	c.Writer.Header().Set("Set-Cookie", fmt.Sprintf("SameSite=%s", h.config.CookieSameSite))
 }
 
 // ClearAuthCookies clears authentication cookies
