@@ -281,10 +281,17 @@ func (zsf *ZSFramework) RegisterRedisWithUser(address string, username string, p
 
 	// Enable TLS for Redis Cloud (non-localhost connections)
 	if opts.Addr != "" && opts.Addr != "localhost:6379" {
+		// Redis Cloud GCP requires specific TLS configuration
+		hostname := strings.Split(opts.Addr, ":")[0]
 		opts.TLSConfig = &tls.Config{
-			ServerName:         strings.Split(opts.Addr, ":")[0], // Extract hostname
-			InsecureSkipVerify: false, // Verify certificates for security
+			ServerName:         hostname,
+			InsecureSkipVerify: false,
+			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         tls.VersionTLS13,
 		}
+		
+		// Force TLS connection
+		log.Printf("Configuring TLS for Redis Cloud: %s", hostname)
 	}
 
 	zsf.healthCheck = append(zsf.healthCheck, func() (string, bool) {
