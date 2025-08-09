@@ -49,6 +49,22 @@ func (h *JWTHelper) AuthMiddlewareWithConfig(config *JWTMiddlewareConfig, valida
 			return
 		}
 
+		// ✅ SECURITY: Check token blacklist with FAIL-SAFE
+		if blacklist, exists := c.Get("token_blacklist"); exists {
+			if tb, ok := blacklist.(*TokenBlacklist); ok {
+				isRevoked, err := tb.IsTokenRevoked(c.Request.Context(), tokenString)
+				if err != nil {
+					// ⚠️ FAIL-SAFE: Se blacklist não funciona, REJEITA token por segurança
+					c.AbortWithStatusJSON(503, gin.H{"error": "Authentication service unavailable - token rejected for security"})
+					return
+				}
+				if isRevoked {
+					c.AbortWithStatusJSON(401, gin.H{"error": "Token has been revoked"})
+					return
+				}
+			}
+		}
+
 		// Set claims in context
 		c.Set("claims", claims)
 
