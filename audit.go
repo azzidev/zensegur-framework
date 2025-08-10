@@ -25,7 +25,7 @@ type AuditEntry struct {
 	ID            uuid.UUID              `bson:"_id"`
 	CollectionName string                `bson:"collectionName"`
 	Action        AuditAction           `bson:"action"`
-	DocumentID    interface{}           `bson:"documentId"`
+	DocumentID    uuid.UUID             `bson:"documentId"`
 	TenantID      uuid.UUID             `bson:"tenantId"`
 	Before        interface{}           `bson:"before,omitempty"`
 	After         interface{}           `bson:"after,omitempty"`
@@ -42,7 +42,7 @@ type AuditEvent struct {
 	ServiceName   string                 `json:"serviceName"`
 	CollectionName string                `json:"collectionName"`
 	Action        AuditAction           `json:"action"`
-	DocumentID    interface{}           `json:"documentId"`
+	DocumentID    uuid.UUID             `json:"documentId"`
 	TenantID      uuid.UUID             `json:"tenantId"`
 	Before        interface{}           `json:"before,omitempty"`
 	After         interface{}           `json:"after,omitempty"`
@@ -213,7 +213,7 @@ func (a *AuditLogger) createAuditEntry(ctx context.Context, collectionName strin
 		ID:            uuid.New(),
 		CollectionName: collectionName,
 		Action:        action,
-		DocumentID:    documentID,
+		DocumentID:    documentID.(uuid.UUID),
 		Timestamp:     time.Now(),
 		CorrelationID: parseCorrelationID(GetContextHeader(ctx, XCORRELATIONID)),
 		Author:        GetContextHeader(ctx, XAUTHOR),
@@ -237,7 +237,7 @@ func (a *AuditLogger) createAuditEvent(ctx context.Context, collectionName strin
 		ServiceName:   a.serviceName,
 		CollectionName: collectionName,
 		Action:        action,
-		DocumentID:    documentID,
+		DocumentID:    documentID.(uuid.UUID),
 		Timestamp:     time.Now(),
 		CorrelationID: parseCorrelationID(GetContextHeader(ctx, XCORRELATIONID)),
 		Author:        GetContextHeader(ctx, XAUTHOR),
