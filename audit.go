@@ -2,7 +2,7 @@ package zensframework
 
 import (
 	"context"
-	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,35 +22,35 @@ const (
 
 // AuditEntry represents an audit log entry for MongoDB
 type AuditEntry struct {
-	ID            uuid.UUID              `bson:"_id"`
-	CollectionName string                `bson:"collectionName"`
-	Action        AuditAction           `bson:"action"`
-	DocumentID    uuid.UUID             `bson:"documentId"`
-	TenantID      uuid.UUID             `bson:"tenantId"`
-	Before        interface{}           `bson:"before,omitempty"`
-	After         interface{}           `bson:"after,omitempty"`
-	Changes       map[string]interface{} `bson:"changes,omitempty"`
-	Author        string                `bson:"author"`
-	AuthorID      string                `bson:"authorId"`
-	Timestamp     time.Time             `bson:"timestamp"`
-	CorrelationID uuid.UUID             `bson:"correlationId"`
+	ID             uuid.UUID              `bson:"_id"`
+	CollectionName string                 `bson:"collectionName"`
+	Action         AuditAction            `bson:"action"`
+	DocumentID     uuid.UUID              `bson:"documentId"`
+	TenantID       uuid.UUID              `bson:"tenantId"`
+	Before         interface{}            `bson:"before,omitempty"`
+	After          interface{}            `bson:"after,omitempty"`
+	Changes        map[string]interface{} `bson:"changes,omitempty"`
+	Author         string                 `bson:"author"`
+	AuthorID       string                 `bson:"authorId"`
+	Timestamp      time.Time              `bson:"timestamp"`
+	CorrelationID  uuid.UUID              `bson:"correlationId"`
 }
 
 // AuditEvent represents an audit event for PubSub
 type AuditEvent struct {
-	ID            uuid.UUID              `json:"id"`
-	ServiceName   string                 `json:"serviceName"`
-	CollectionName string                `json:"collectionName"`
-	Action        AuditAction           `json:"action"`
-	DocumentID    uuid.UUID             `json:"documentId"`
-	TenantID      uuid.UUID             `json:"tenantId"`
-	Before        interface{}           `json:"before,omitempty"`
-	After         interface{}           `json:"after,omitempty"`
-	Changes       map[string]interface{} `json:"changes,omitempty"`
-	Author        string                `json:"author"`
-	AuthorID      string                `json:"authorId"`
-	Timestamp     time.Time             `json:"timestamp"`
-	CorrelationID uuid.UUID             `json:"correlationId"`
+	ID             uuid.UUID              `json:"id"`
+	ServiceName    string                 `json:"serviceName"`
+	CollectionName string                 `json:"collectionName"`
+	Action         AuditAction            `json:"action"`
+	DocumentID     uuid.UUID              `json:"documentId"`
+	TenantID       uuid.UUID              `json:"tenantId"`
+	Before         interface{}            `json:"before,omitempty"`
+	After          interface{}            `json:"after,omitempty"`
+	Changes        map[string]interface{} `json:"changes,omitempty"`
+	Author         string                 `json:"author"`
+	AuthorID       string                 `json:"authorId"`
+	Timestamp      time.Time              `json:"timestamp"`
+	CorrelationID  uuid.UUID              `json:"correlationId"`
 }
 
 // AuditPublisher interface for publishing audit events
@@ -131,12 +131,12 @@ func (a *AuditLogger) LogUpdate(ctx context.Context, collectionName string, docu
 	var changes map[string]interface{}
 	beforeMap, ok1 := before.(map[string]interface{})
 	afterMap, ok2 := after.(map[string]interface{})
-	
+
 	if ok1 && ok2 {
 		changes = make(map[string]interface{})
 		for k, v := range afterMap {
 			if beforeVal, exists := beforeMap[k]; exists {
-				if fmt.Sprintf("%v", beforeVal) != fmt.Sprintf("%v", v) {
+				if !reflect.DeepEqual(beforeVal, v) {
 					changes[k] = map[string]interface{}{
 						"before": beforeVal,
 						"after":  v,
@@ -210,14 +210,14 @@ func parseCorrelationID(correlationStr string) uuid.UUID {
 // createAuditEntry creates a base audit entry with common fields
 func (a *AuditLogger) createAuditEntry(ctx context.Context, collectionName string, documentID interface{}, action AuditAction) *AuditEntry {
 	entry := &AuditEntry{
-		ID:            uuid.New(),
+		ID:             uuid.New(),
 		CollectionName: collectionName,
-		Action:        action,
-		DocumentID:    documentID.(uuid.UUID),
-		Timestamp:     time.Now(),
-		CorrelationID: parseCorrelationID(GetContextHeader(ctx, XCORRELATIONID)),
-		Author:        GetContextHeader(ctx, XAUTHOR),
-		AuthorID:      GetContextHeader(ctx, XAUTHORID),
+		Action:         action,
+		DocumentID:     documentID.(uuid.UUID),
+		Timestamp:      time.Now(),
+		CorrelationID:  parseCorrelationID(GetContextHeader(ctx, XCORRELATIONID)),
+		Author:         GetContextHeader(ctx, XAUTHOR),
+		AuthorID:       GetContextHeader(ctx, XAUTHORID),
 	}
 
 	// Try to get tenant ID
@@ -233,15 +233,15 @@ func (a *AuditLogger) createAuditEntry(ctx context.Context, collectionName strin
 // createAuditEvent creates a base audit event for PubSub with common fields
 func (a *AuditLogger) createAuditEvent(ctx context.Context, collectionName string, documentID interface{}, action AuditAction) *AuditEvent {
 	event := &AuditEvent{
-		ID:            uuid.New(),
-		ServiceName:   a.serviceName,
+		ID:             uuid.New(),
+		ServiceName:    a.serviceName,
 		CollectionName: collectionName,
-		Action:        action,
-		DocumentID:    documentID.(uuid.UUID),
-		Timestamp:     time.Now(),
-		CorrelationID: parseCorrelationID(GetContextHeader(ctx, XCORRELATIONID)),
-		Author:        GetContextHeader(ctx, XAUTHOR),
-		AuthorID:      GetContextHeader(ctx, XAUTHORID),
+		Action:         action,
+		DocumentID:     documentID.(uuid.UUID),
+		Timestamp:      time.Now(),
+		CorrelationID:  parseCorrelationID(GetContextHeader(ctx, XCORRELATIONID)),
+		Author:         GetContextHeader(ctx, XAUTHOR),
+		AuthorID:       GetContextHeader(ctx, XAUTHORID),
 	}
 
 	// Try to get tenant ID

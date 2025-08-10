@@ -70,11 +70,17 @@ func AddTenant(monitoring *Monitoring, v *viper.Viper) gin.HandlerFunc {
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			if ctx.Request.Method == http.MethodPost || ctx.Request.Method == http.MethodPut || ctx.Request.Method == http.MethodDelete || ctx.Request.Method == http.MethodPatch {
-				ctx.Request.Header.Add(XAUTHOR, fmt.Sprint(claims["name"]))
-				ctx.Request.Header.Add(XAUTHORID, fmt.Sprint(claims["sub"]))
+				if name, ok := claims["name"].(string); ok && name != "" {
+					ctx.Request.Header.Add(XAUTHOR, name)
+				}
+				if sub, ok := claims["sub"].(string); ok && sub != "" {
+					ctx.Request.Header.Add(XAUTHORID, sub)
+				}
 			}
 
-			ctx.Request.Header.Add(XTENANTID, fmt.Sprint(claims[TTENANTID]))
+			if tenantID, ok := claims[TTENANTID].(string); ok && tenantID != "" {
+				ctx.Request.Header.Add(XTENANTID, tenantID)
+			}
 		}
 
 		sourcename := v.GetString("pubsub.projectid")
@@ -158,16 +164,8 @@ func NewZSFramework(opts ...ZSFrameworkOptions) *ZSFramework {
 	return zsf
 }
 
-// VIPER
 func initializeViper() *viper.Viper {
-	v := viper.New()
-	v.AddConfigPath("./configs")
-	v.SetConfigType("json")
-	v.SetConfigName(os.Getenv("env"))
-	if err := v.ReadInConfig(); err != nil {
-		log.Panic(err)
-	}
-	return v
+	return viper.New()
 }
 
 func (zsf *ZSFramework) GetConfig(key string) string {
@@ -285,6 +283,7 @@ func (zsf *ZSFramework) RegisterRedisWithUser(address string, username string, p
 	// Only enable TLS for specific Redis Cloud TLS ports
 	if strings.Contains(opts.Addr, ":6380") || strings.Contains(opts.Addr, ":17730") {
 		opts.TLSConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS13,
 			InsecureSkipVerify: true,
 		}
 		log.Printf("Redis TLS enabled for: %s", opts.Addr)

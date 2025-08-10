@@ -209,12 +209,12 @@ func MarshalWithRegistry(val interface{}) ([]byte, error) {
 	buf := bytes.NewBuffer([]byte{})
 	vw, err := bsonrw.NewBSONValueWriter(buf)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("failed to create BSON value writer: %w", err)
 	}
 
 	enc, err := bson.NewEncoder(vw)
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("failed to create BSON encoder: %w", err)
 	}
 
 	enc.SetRegistry(MongoRegistry)
@@ -229,7 +229,7 @@ func MarshalWithRegistry(val interface{}) ([]byte, error) {
 func UnmarshalWithRegistry(data []byte, val interface{}) error {
 	dec, err := bson.NewDecoder(bsonrw.NewBSONDocumentReader(data))
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to create BSON decoder: %w", err)
 	}
 	dec.SetRegistry(MongoRegistry)
 
