@@ -198,10 +198,7 @@ func (zsf *ZSFramework) RegisterController(controller interface{}) {
 func (zsf *ZSFramework) Start() error {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = os.Getenv("port")
-	}
-	if port == "" {
-		port = "8081"
+		port = "8080"
 	}
 	return zsf.server.Run(":" + port)
 }
