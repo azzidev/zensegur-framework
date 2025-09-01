@@ -59,6 +59,7 @@ func AddTenant(monitoring *Monitoring, v *viper.Viper) gin.HandlerFunc {
 		tokenString := ctx.GetHeader("Authorization")
 		if tokenString == "" {
 			ctx.Request.Header.Add(XTENANTID, "00000000-0000-0000-0000-000000000000")
+			ctx.Next()
 			return
 		}
 
