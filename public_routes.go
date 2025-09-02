@@ -26,6 +26,12 @@ func (c *JWTMiddlewareConfig) IsPublicPath(path string) bool {
 // AuthMiddlewareWithConfig creates a middleware for JWT authentication with configuration
 func (h *JWTHelper) AuthMiddlewareWithConfig(config *JWTMiddlewareConfig, validateFunc func(*gin.Context, jwt.Claims) error) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Always skip authentication for OPTIONS requests (CORS preflight)
+		if c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+		
 		// Skip authentication for public paths
 		if config != nil && config.IsPublicPath(c.Request.URL.Path) {
 			c.Next()
